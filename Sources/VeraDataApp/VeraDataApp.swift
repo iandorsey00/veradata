@@ -81,10 +81,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     weak var mainWindow: NSWindow?
 
     override init() {
-        let applicationSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let defaultURL = applicationSupport.appendingPathComponent("VeraData/vault.json")
-        let override = ProcessInfo.processInfo.environment["VERADATA_VAULT_PATH"]
-        store = VaultFile(url: override.map { URL(fileURLWithPath: $0) } ?? defaultURL)
+        store = VaultFile(url: VaultFile.defaultURL)
         super.init()
         do {
             if let saved = try store.load() { vault = saved }
@@ -249,7 +246,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func openExport(recordID: Record.ID? = nil) {
-        exportRequest = ExportRequest(profile: profile, recordID: recordID)
+        exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url))
     }
 
     func saveSelection(_ data: Data, format: ExportFormat) {

@@ -60,6 +60,69 @@ struct SelectiveExportTests {
         #expect(result.values.allSatisfy { $0.string != nil })
     }
 
+    @Test func fictionalResumeSelectionFeedsThePDFTemplate() throws {
+        func record(_ id: String, _ kind: RecordKind, _ fields: [String: JSONValue]) -> Record {
+            Record(id: id, kind: kind, label: "Hidden display name", fields: fields)
+        }
+        let contact = record("c", .contact, [
+            "name": .string("Alex Lin 林晓"), "headline": .string("Logistics and documentation coordinator"),
+            "email": .string("alex.lin@example.com"), "phone": .string("+1 503 555 0148"),
+            "portfolio": .string("https://example.com/portfolio"), "website": .string("https://hidden.example.com"),
+            "summary": .string("Coordinates readable bilingual documents and reliable shipment handoffs."),
+        ])
+        let first = record("a", .employment, [
+            "title": .string("Dispatch Coordinator"), "employer": .string("North Depot"),
+            "startDate": .string("2023"), "endDate": .string("2026"), "location": .string("Portland"),
+            "responsibilities": .array([.string("Coordinated 32 monthly shipments."), .string("支持中英文文件。"), .string("Hidden bullet")]),
+        ])
+        let second = record("b", .employment, [
+            "title": .string("Operations Assistant"), "employer": .string("Harbor Studio"),
+            "startDate": .string("2020"), "endDate": .string("2023"), "location": .string("Seattle"),
+            "responsibilities": .array([.string("Prepared daily handoff notes.")]),
+        ])
+        let education = record("e", .education, [
+            "qualification": .string("B.A."), "institution": .string("Example College"),
+            "startDate": .string("2016"), "endDate": .string("2020"),
+        ])
+        let skills = record("s", .custom, [
+            "skills": .array([.string("Dispatch documentation"), .string("English and Mandarin"), .string("Hidden skill")]),
+        ])
+        let project = record("p", .custom, [
+            "title": .string("Intake redesign"), "details": .string("Built a bilingual checklist."),
+        ])
+        let secondProject = record("q", .custom, [
+            "title": .string("Dispatch playbook"), "details": .string("Consolidated procedures into one guide."),
+        ])
+        let unselected = record("u", .custom, ["title": .string("Hidden project")])
+        let profile = Profile(id: "sample", name: "Example", records: [contact, second, first, education, skills, secondProject, project, unselected])
+        func select(_ record: Record, excluding omitted: Set<String> = [], section: ResumeSection? = nil) -> ExportRecordSelection {
+            .init(id: record.id, fields: Dictionary(uniqueKeysWithValues: record.fields.keys.filter { !omitted.contains($0) }.map { ($0, .whole) }), resumeSection: section)
+        }
+        var firstSelection = select(first)
+        firstSelection.fields["responsibilities"] = .items([0, 1])
+        let data = try SelectiveExport.data(from: profile, selection: [
+            select(contact, excluding: ["website"]), firstSelection, select(second), select(education),
+            .init(id: skills.id, fields: ["skills": .items([0, 1])], resumeSection: .skills),
+            select(project, section: .projects), select(secondProject, section: .projects),
+        ], format: .veraFlowResume)
+        let result = try #require(JSONValue.parse(data).object)
+        #expect(result["links_markdown"] == .string("[Portfolio](<https://example.com/portfolio>)"))
+        #expect(result["skills_markdown"] == .string("- Dispatch documentation\n- English and Mandarin"))
+        #expect(result["projects_markdown"] == .string("### Intake redesign\n\n- Built a bilingual checklist.\n\n### Dispatch playbook\n\n- Consolidated procedures into one guide."))
+        #expect(result["experience_markdown"]?.string?.hasPrefix("### Dispatch Coordinator") == true)
+        #expect(!String(decoding: data, as: UTF8.self).localizedCaseInsensitiveContains("hidden"))
+        let contactOnly = try SelectiveExport.data(from: profile, selection: [
+            .init(id: contact.id, fields: ["name": .whole]),
+        ], format: .veraFlowResume)
+        #expect(try JSONValue.parse(contactOnly) == .object(["name": .string("Alex Lin 林晓")]))
+        #expect(throws: DataIssue.self) {
+            try SelectiveExport.data(from: profile, selection: [select(project)], format: .veraFlowResume)
+        }
+        if let path = ProcessInfo.processInfo.environment["VERADATA_RESUME_FIXTURE"] {
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+    }
+
     @Test func singleRecordFormatRetainsExistingFlatContract() throws {
         let data = try SelectiveExport.data(from: profile, selection: [
             .init(id: job.id, fields: ["title": .whole, "endDate": .whole]),

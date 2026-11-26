@@ -4,20 +4,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 swift build -c release --product VeraData "$@"
+swift build -c release --product veradata-cli "$@"
 products="$(swift build -c release --show-bin-path "$@")"
 mkdir -p dist
 staging="$(mktemp -d "$PWD/dist/.assemble.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 
 app="$staging/VeraData.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
 cp "$products/VeraData" "$app/Contents/MacOS/"
+cp "$products/veradata-cli" "$app/Contents/Helpers/veradata"
 cp Sources/VeraDataApp/Resources/demo.json "$app/Contents/Resources/"
 cp scripts/Info.plist "$app/Contents/Info.plist"
 cp -R Sources/VeraDataCore/Resources/*.lproj "$app/Contents/Resources/"
 
 cp Assets/VeraData.icns "$app/Contents/Resources/"
 
+codesign --force --sign - "$app/Contents/Helpers/veradata"
 codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 

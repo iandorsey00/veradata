@@ -8,7 +8,7 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .structured: return VeraText.text("Structured JSON")
-        case .veraFlowResume: return VeraText.text("VeraFlow résumé")
+        case .veraFlowResume: return VeraText.text("Résumé data (JSON)")
         case .flatRecord: return VeraText.text("Single-record JSON")
         }
     }
@@ -16,7 +16,7 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
     public var filename: String {
         switch self {
         case .structured: return "VeraData-selection.json"
-        case .veraFlowResume: return "VeraFlow-resume.json"
+        case .veraFlowResume: return "resume-data.json"
         case .flatRecord: return "VeraData-fields.json"
         }
     }
@@ -27,15 +27,15 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
         case .structured: return true
         case .flatRecord: return value.isScalar
         case .veraFlowResume:
-            guard Self.resumeFields[record.kind, default: []].contains(key) else { return false }
+            guard record.kind == .custom || Self.resumeFields[record.kind, default: []].contains(key) else { return false }
             if let text = value.string { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            return ["responsibilities", "achievements"].contains(key)
+            return (record.kind == .custom || ["responsibilities", "achievements"].contains(key))
                 && value.array?.contains(where: { $0.string?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }) == true
         }
     }
 
     private static let resumeFields: [RecordKind: Set<String>] = [
-        .contact: ["name", "givenName", "familyName", "email", "phone", "summary"],
+        .contact: ["name", "givenName", "familyName", "email", "phone", "summary", "headline", "website", "portfolio", "linkedin"],
         .employment: ["employer", "title", "startDate", "endDate", "location", "responsibilities", "achievements"],
         .education: ["institution", "qualification", "fieldOfStudy", "startDate", "endDate", "location"],
     ]
@@ -46,13 +46,24 @@ public enum ExportFieldSelection: Equatable, Sendable {
     case items(Set<Int>)
 }
 
+public enum ResumeSection: String, CaseIterable, Identifiable, Sendable {
+    case skills, projects
+
+    public var id: String { rawValue }
+    public var title: String {
+        VeraText.text(self == .skills ? "Skills" : "Selected Projects")
+    }
+}
+
 public struct ExportRecordSelection: Equatable, Identifiable, Sendable {
     public let id: Record.ID
     public var fields: [String: ExportFieldSelection]
+    public var resumeSection: ResumeSection?
 
-    public init(id: Record.ID, fields: [String: ExportFieldSelection]) {
+    public init(id: Record.ID, fields: [String: ExportFieldSelection], resumeSection: ResumeSection? = nil) {
         self.id = id
         self.fields = fields
+        self.resumeSection = resumeSection
     }
 }
 
@@ -107,7 +118,7 @@ public enum SelectiveExport {
                     fields[key] = .array(indices.sorted().map { list[$0] })
                 }
             }
-            return ProjectedRecord(kind: record.kind, fields: fields)
+            return ProjectedRecord(kind: record.kind, fields: fields, resumeSection: chosen.resumeSection)
         }
     }
 }
@@ -115,6 +126,7 @@ public enum SelectiveExport {
 private struct ProjectedRecord {
     let kind: RecordKind
     let fields: [String: JSONValue]
+    let resumeSection: ResumeSection?
 
     func text(_ key: String) -> String? {
         guard let value = fields[key]?.string, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -130,12 +142,31 @@ private enum ResumeProjection {
         if let contact = contacts.first {
             let fallback = [contact.text("givenName"), contact.text("familyName")].compactMap { $0 }.joined(separator: " ")
             if let name = contact.text("name") ?? nonempty(fallback) { result["name"] = .string(inline(name)) }
-            for key in ["email", "phone", "summary"] {
+            for key in ["email", "phone", "summary", "headline"] {
                 if let value = contact.text(key) { result[key] = .string(inline(value)) }
             }
+            let links = try [("website", "Website"), ("portfolio", "Portfolio"), ("linkedin", "LinkedIn")].compactMap { key, label -> String? in
+                guard let text = contact.text(key) else { return nil }
+                guard !text.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" || $0 == "\\" }),
+                      let url = URLComponents(string: text),
+                      ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                      url.host?.isEmpty == false else {
+                    throw DataIssue("Résumé links need a complete HTTP or HTTPS address.")
+                }
+                return "[\(label)](<\(text)>)"
+            }
+            if !links.isEmpty { result["links_markdown"] = .string(links.joined(separator: " · ")) }
         }
         for (kind, key) in [(RecordKind.employment, "experience_markdown"), (.education, "education_markdown")] {
             let blocks = records.filter { $0.kind == kind }.compactMap(block)
+            if !blocks.isEmpty { result[key] = .string(blocks.joined(separator: "\n\n")) }
+        }
+        let custom = records.filter { $0.kind == .custom }
+        guard custom.allSatisfy({ $0.resumeSection != nil }) else {
+            throw DataIssue("Choose a résumé section for each selected custom record.")
+        }
+        for (section, key) in [(ResumeSection.skills, "skills_markdown"), (.projects, "projects_markdown")] {
+            let blocks = custom.filter { $0.resumeSection == section }.compactMap { customBlock($0, section: section) }
             if !blocks.isEmpty { result[key] = .string(blocks.joined(separator: "\n\n")) }
         }
         guard !result.isEmpty else { throw DataIssue("Select at least one nonempty résumé field.") }
@@ -143,6 +174,17 @@ private enum ResumeProjection {
             throw DataIssue("Remove null characters from your résumé fields before exporting.")
         }
         return .object(result)
+    }
+
+    static func customBlock(_ record: ProjectedRecord, section: ResumeSection) -> String? {
+        let heading = section == .projects ? record.text("title").map { "### " + inline($0) } : nil
+        // Field IDs set the presentation. A record's display name never enters the export.
+        let bullets = record.fields.keys.sorted().filter { heading == nil || $0 != "title" }.flatMap { key -> [String] in
+            guard let value = record.fields[key] else { return [] }
+            let texts = value.string.map { [$0] } ?? (value.array ?? []).compactMap(\.string)
+            return texts.compactMap { nonempty(inline($0)) }.map { "- " + $0 }
+        }
+        return nonempty([heading, nonempty(bullets.joined(separator: "\n"))].compactMap { $0 }.joined(separator: "\n\n"))
     }
 
     static func block(_ record: ProjectedRecord) -> String? {

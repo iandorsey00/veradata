@@ -6,6 +6,7 @@ struct ExportRequest: Identifiable {
     let id = UUID()
     let profile: Profile
     let recordID: Record.ID?
+    let presets: ExportPresetStore
 }
 
 struct SelectiveExportView: View {
@@ -18,6 +19,11 @@ struct SelectiveExportView: View {
     @ViewState private var recordID: Record.ID?
     @ViewState private var preview: Data?
     @ViewState private var problem: String?
+    @ViewState private var savedNames: [String] = []
+    @ViewState private var presetName = ""
+    @ViewState private var editingPreset = false
+    @ViewState private var confirmReplacement = false
+    @ViewState private var presetStatus: String?
 
     init(request: ExportRequest, save: @escaping (Data, ExportFormat) -> Void) {
         self.request = request
@@ -28,14 +34,16 @@ struct SelectiveExportView: View {
     }
 
     private var formats: [ExportFormat] {
-        request.recordID == nil ? [.structured, .veraFlowResume] : [.flatRecord, .structured, .veraFlowResume]
+        request.recordID == nil && chosen[.flatRecord]?.isEmpty != false
+            ? [.structured, .veraFlowResume] : [.flatRecord, .structured, .veraFlowResume]
     }
 
     private var selection: [ExportRecordSelection] { chosen[format, default: []] }
 
     private var available: [Record] {
-        request.profile.records.filter { record in
-            (format != .flatRecord || record.id == request.recordID)
+        let flatRecordID = chosen[.flatRecord]?.first?.id ?? request.recordID
+        return request.profile.records.filter { record in
+            (format != .flatRecord || record.id == flatRecordID)
                 && record.orderedKeys.contains { format.includes($0, in: record) }
         }
     }
@@ -52,8 +60,17 @@ struct SelectiveExportView: View {
                     .foregroundStyle(.secondary)
                 ExportJSONPreview(data: preview)
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                if editingPreset { presetEditor }
+                if let problem { Text(problem).foregroundStyle(.red) }
+                if let presetStatus { Text(presetStatus).foregroundStyle(.secondary) }
                 HStack {
-                    Button("Back") { self.preview = nil }
+                    Button("Back") {
+                        self.preview = nil
+                        editingPreset = false
+                        problem = nil
+                        presetStatus = nil
+                    }
+                    Button("Save Preset…") { editingPreset.toggle(); problem = nil }
                     Spacer()
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     Button("Save JSON…") {
@@ -66,6 +83,13 @@ struct SelectiveExportView: View {
                 HStack {
                     Text(request.profile.name).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
+                    if !savedNames.isEmpty {
+                        Menu("Load Preset") {
+                            ForEach(savedNames, id: \.self) { name in
+                                Button(name) { loadPreset(name) }
+                            }
+                        }.fixedSize()
+                    }
                     Picker("Format", selection: $format) {
                         ForEach(formats) { format in Text(format.title).tag(format) }
                     }.fixedSize()
@@ -95,16 +119,59 @@ struct SelectiveExportView: View {
         }
         .padding(24)
         .frame(width: 780, height: 575)
+        .task { refreshPresets() }
+        .confirmationDialog("Replace this export preset?", isPresented: $confirmReplacement, titleVisibility: .visible) {
+            Button("Replace Preset", role: .destructive) { savePreset(replace: true) }
+            Button("Cancel", role: .cancel) {}
+        }
         .onChange(of: format) { _, _ in
             problem = nil
             if focused == nil { recordID = available.first?.id }
         }
     }
 
+    private var presetEditor: some View {
+        HStack {
+            TextField("Preset name", text: $presetName)
+                .help("Use lowercase letters, digits, hyphens or underscores.")
+            Button("Save Preset") {
+                if savedNames.contains(presetName) { confirmReplacement = true }
+                else { savePreset() }
+            }.disabled(presetName.isEmpty)
+        }
+    }
+
+    private func refreshPresets() {
+        do { savedNames = try request.presets.names(for: request.profile.id) }
+        catch { problem = error.localizedDescription }
+    }
+
+    private func loadPreset(_ name: String) {
+        do {
+            let loaded = try request.presets.load(name).selection(in: request.profile)
+            chosen[loaded.format] = loaded.records
+            format = loaded.format
+            recordID = loaded.records.first?.id
+            presetName = name
+            problem = nil
+        } catch { problem = error.localizedDescription }
+    }
+
+    private func savePreset(replace: Bool = false) {
+        do {
+            let preset = try ExportPreset(name: presetName, profile: request.profile, selection: selection, format: format)
+            try request.presets.save(preset, replace: replace)
+            problem = nil
+            presetStatus = VeraText.format("Saved preset “%@”.", presetName)
+            editingPreset = false
+            refreshPresets()
+        } catch { problem = error.localizedDescription }
+    }
+
     private var instruction: String {
         switch format {
         case .structured: return VeraText.text("Choose fields and list items. Selected records appear in export order.")
-        case .veraFlowResume: return VeraText.text("Choose fields from one contact and any employment or education records. Selected records appear in export order.")
+        case .veraFlowResume: return VeraText.text("Compatible with VeraFlow. Choose selected contact, work, and education fields. Assign selected custom records to Skills or Selected Projects.")
         case .flatRecord: return VeraText.text("Choose individual values from this record.")
         }
     }
@@ -162,6 +229,22 @@ struct SelectiveExportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(record.label).font(.headline)
+                if format == .veraFlowResume, record.kind == .custom,
+                   let item = selection.first(where: { $0.id == record.id }) {
+                    Picker("Résumé section", selection: Binding(
+                        get: { item.resumeSection },
+                        set: { section in
+                            guard let index = selection.firstIndex(where: { $0.id == record.id }) else { return }
+                            chosen[format, default: []][index].resumeSection = section
+                            problem = nil
+                        }
+                    )) {
+                        Text("Choose a section").tag(nil as ResumeSection?)
+                        ForEach(ResumeSection.allCases) { section in
+                            Text(section.title).tag(Optional(section))
+                        }
+                    }
+                }
                 ForEach(record.orderedKeys.filter { format.includes($0, in: record) }, id: \.self) { key in
                     if let value = record.fields[key] {
                         fieldRow(key, value: value, in: record)

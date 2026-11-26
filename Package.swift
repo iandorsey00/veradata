@@ -8,6 +8,7 @@ let package = Package(
     products: [
         .library(name: "VeraDataCore", targets: ["VeraDataCore"]),
         .executable(name: "VeraData", targets: ["VeraDataApp"]),
+        .executable(name: "veradata-cli", targets: ["VeraDataCLI"]),
     ],
     targets: [
         .target(name: "VeraDataCore", resources: [.process("Resources")]),
@@ -16,6 +17,7 @@ let package = Package(
             dependencies: ["VeraDataCore"],
             resources: [.copy("Resources/demo.json")]
         ),
+        .executableTarget(name: "VeraDataCLI", dependencies: ["VeraDataCore"]),
         .testTarget(name: "VeraDataCoreTests", dependencies: ["VeraDataCore"]),
     ]
 )

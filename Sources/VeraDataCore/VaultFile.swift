@@ -13,6 +13,13 @@ public struct VaultFile {
 
     public init(url: URL) { self.url = url }
 
+    public static var defaultURL: URL {
+        if let path = ProcessInfo.processInfo.environment["VERADATA_VAULT_PATH"], !path.isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        return URL.applicationSupportDirectory.appending(path: "VeraData/vault.json")
+    }
+
     public mutating func load() throws -> Vault? {
         let data = try currentData()
         let vault = try data.map { try Vault(data: $0) }

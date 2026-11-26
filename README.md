@@ -42,12 +42,27 @@ For an ongoing job, enter **Present** as the employment end date. Dates still ac
 
 ## Build a résumé in VeraFlow
 
-1. In VeraData, choose **File › Export Data** and set **Format** to **VeraFlow résumé**.
-2. Select the contact details, work history, and education you want. Expand a responsibilities or accomplishments field to select individual bullets. Use the arrows to order jobs or education entries.
-3. Choose **Review**, check the exact file, and save it.
-4. In VeraFlow Desktop, choose **Open JSON / JSON5**, open the export, and choose **Use a form file** with [VeraData-Resume.vf](examples/VeraData-Resume.vf). Copy the rendered Markdown to your preferred editor for final layout.
+1. In VeraData, choose **File › Export Data**, then **Résumé data (JSON)**.
+2. Choose the contact, work, and education fields you want. Select individual bullets within lists. To include skills or projects, select fields in a custom record and assign it to **Skills** or **Selected Projects**. For a project heading, select its `title` field. Use the arrows to order selected records.
+3. Choose **Review** to check the exact JSON, then save it.
+4. In VeraFlow Desktop, choose **Open JSON / JSON5**, open the export, and use [VeraData-Resume.vf](examples/VeraData-Resume.vf). Prepare the output, then select **Save as PDF…** on macOS to review the Markdown and convert locally with Pandoc and XeLaTeX.
 
 For other workflows, choose **Structured JSON**. It preserves selected lists, objects, and scalar types without requiring VeraFlow. [Export formats](docs/specification.md#selective-projection)
+
+### Run from the terminal
+
+In VeraData, review your export and choose **Save Preset…**. Name it `resume`. Install the [VeraFlow CLI and PDF dependencies](https://github.com/iandorsey00/veraflow/blob/main/examples/source/pdf-demo.md) once.
+
+Open the built app at `dist/VeraData.app` to save the preset. From the VeraData checkout, with VeraFlow in the neighboring checkout, run:
+
+```sh
+./dist/VeraData.app/Contents/Helpers/veradata export --preset resume |
+  ../veraflow/scripts/veraflow pdf - examples/VeraData-Resume.vf --output Resume.pdf
+```
+
+The preset uses the latest values for your selected scalar fields. If a selected list or object changes, review the export again and replace the preset. For other VeraFlow templates, use **Single-record JSON** from the record’s export menu to choose a flat set of fields. For Markdown on stdout, use VeraFlow’s `render` command and omit `--output`.
+
+The VeraData CLI uses the desktop app’s vault by default. Run `veradata presets` with the same executable to list saved names. Both commands accept `--vault PATH`. Presets live in a `vault.json.export-presets` directory beside the vault file and are backed up separately.
 
 ## VeraData on iPhone
 
