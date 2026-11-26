@@ -1,0 +1,27 @@
+{
+  "format": "veradata-import",
+  "version": 1,
+  "records": [
+    {
+      "id": "juniper-lead",
+      "kind": "employment",
+      "label": "Juniper Signal Works",
+      "fields": {
+        "employer": "Juniper Signal Works",
+        "title": "Operations Lead",
+        "startDate": "2024",
+        "endDate": "Present",
+        "location": "Port Mason, WA"
+      }
+    },
+    {
+      "kind": "custom",
+      "label": "Equipment inventory",
+      "fields": {
+        "Reference code": "000391",
+        "items": [{"name": "Monitor", "quantity": 1}],
+        "retired": false
+      }
+    }
+  ]
+}

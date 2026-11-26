@@ -72,6 +72,19 @@ The demonstration can also be read by `python3 scripts/check-portability.py`. Su
 
 Version 1 is the initial format. The app rejects older and newer version numbers. A future incompatible change needs a new version and a tested migration that leaves the original available for recovery. JSON5, JSON Resume adaptation, cross-record relationships, attachments, and evidence locators are possible future extensions.
 
+## Additive record import
+
+**File › Import Records** accepts the same JSON file limits as vault import. Supported inputs are:
+
+- VeraData backups and iPhone transfers. Choose a source profile and a destination. Other user profiles and vault settings are outside the import.
+- The structured selection export. Where the file omits a label, VeraData uses selected fields or the record kind to make a review label.
+- A [record import file](../examples/record-import.json) with `format: "veradata-import"`, integer `version: 1`, and a `records` array. Each record has a supported `kind` and nonempty `fields` object, plus optional `id`, `label`, and `aliases`. Values retain their JSON types and nested structure. PDFs, spreadsheets, and OCR or AI results can be converted into this JSON by an independent tool.
+- A nonempty plain JSON object. Its keys become fields on a single custom record.
+
+Suggested matches are limited to the chosen destination and the same record kind. Matches start as skipped. Updates preserve the existing record ID, label, aliases, and every field you leave unchecked. Selecting an explicit null sets a field to unknown. An omitted key is never removed. If you add a record with a conflicting ID, the new record receives a fresh ID.
+
+An employment `endDate` can also be the string `"Present"`. Creating or importing it normalizes `present` and `至今` to that spelling. Omitting the date still means no date was supplied. Earlier versions may reject a vault with the new value, so upgrade the receiving app before transferring such records to it.
+
 ## iPhone transfers
 
 In VeraData for Mac, choose **File › Export for iPhone**. Check individual records or select all records in a profile. The export includes each checked record in full, including its custom fields and aliases. Unchecked records, empty profiles, and desktop settings are omitted.

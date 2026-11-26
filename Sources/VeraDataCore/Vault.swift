@@ -120,6 +120,11 @@ public struct Record: Identifiable, Equatable, Sendable {
         return known.filter { fields[$0] != nil } + fields.keys.filter { !known.contains($0) }.sorted()
     }
 
+    public static func canonicalEmploymentEndDate(_ text: String) -> String {
+        let candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate.caseInsensitiveCompare("Present") == .orderedSame || candidate == "至今" ? "Present" : text
+    }
+
     public func fieldDefinition(_ key: String) -> FieldDefinition {
         kind.fields.first { $0.key == key } ?? FieldDefinition(key, key, localizesLabel: false)
     }
@@ -131,7 +136,8 @@ public struct Record: Identifiable, Equatable, Sendable {
             let name = fields[kind == .employment ? "title" : "qualification"]?.string ?? ""
             let start = fields["startDate"]?.string ?? ""
             let end = fields["endDate"]?.string ?? ""
-            let period = [start, end].filter { !$0.isEmpty }.joined(separator: " – ")
+            let displayEnd = kind == .employment && end == "Present" ? VeraText.text("Present") : end
+            let period = [start, displayEnd].filter { !$0.isEmpty }.joined(separator: " – ")
             parts = [name, period]
         case .address:
             parts = [fields["use"]?.string.map { VeraText.text($0) } ?? "", VeraText.text(addressStatus)]
@@ -174,6 +180,10 @@ public struct Record: Identifiable, Equatable, Sendable {
             }
             guard let string = value.string else { throw DataIssue(VeraText.format("%@ must be text.", field.localizedLabel)) }
             if field.style == .date, !string.isEmpty, PartialDate(string) == nil {
+                if kind == .employment, field.key == "endDate" {
+                    if string == "Present" { continue }
+                    throw DataIssue("Enter a valid employment end date or Present.")
+                }
                 throw DataIssue(VeraText.format("%@ must be a valid YYYY, YYYY-MM or YYYY-MM-DD date.", field.localizedLabel))
             }
             if case let .choice(options) = field.style, !string.isEmpty, !options.contains(string) {
@@ -278,7 +288,7 @@ public struct Vault: Equatable, Sendable {
         }
     }
 
-    private static func decodeRecord(_ value: JSONValue, at path: String) throws -> Record {
+    static func decodeRecord(_ value: JSONValue, at path: String) throws -> Record {
         let object = try requireObject(value, at: path, keys: ["id", "kind", "label", "fields", "aliases"])
         guard let id = object["id"]?.string, let label = object["label"]?.string,
               let type = object["kind"]?.string, let kind = RecordKind(rawValue: type),

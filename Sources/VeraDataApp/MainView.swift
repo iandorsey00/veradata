@@ -21,6 +21,9 @@ struct MainView: View {
         .sheet(isPresented: $state.phoneExportOpen) {
             PhoneExportView(vault: state.vault, export: state.exportToPhone)
         }
+        .sheet(item: $state.importRequest) { request in
+            RecordImportView(request: request, profiles: state.vault.profiles, activeID: state.profileID, save: state.applyImport)
+        }
         .sheet(item: $state.exportRequest) { request in
             SelectiveExportView(request: request, save: state.saveSelection)
         }

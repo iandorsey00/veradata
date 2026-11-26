@@ -26,6 +26,7 @@ struct VeraDataApp: App {
                 Divider()
                 Button("Back Up Vault…", action: state.backup).disabled(!state.canEdit)
                 Button("Restore Vault…", action: state.chooseRestore).disabled(!state.canEdit)
+                Button("Import Records…", action: state.chooseImport).disabled(!state.canEdit)
                 Button("Export Data…") { state.openExport() }.disabled(!state.canExportData)
                 Button("Export for iPhone…") { state.phoneExportOpen = true }.disabled(!state.canExportToPhone)
             }
@@ -64,6 +65,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     @Published var problem: String?
     @Published var status: String?
     @Published var restoreCandidate: Vault?
+    @Published var importRequest: ImportRequest?
     @Published var phoneExportOpen = false
     @Published var exportRequest: ExportRequest?
     @Published private(set) var canEdit = true
@@ -189,6 +191,41 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
             try writeExport(vault.data(), to: url)
             showStatus(VeraText.text("Backup saved."))
         } catch { problem = error.localizedDescription }
+    }
+
+    func chooseImport() {
+        let panel = NSOpenPanel()
+        panel.title = VeraText.text("Import Records")
+        panel.prompt = VeraText.text("Review Records")
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            importRequest = ImportRequest(fileName: url.lastPathComponent, data: try RecordImport.read(url))
+        } catch { problem = error.localizedDescription }
+    }
+
+    func applyImport(
+        _ review: RecordImportReview, decisions: [Record.ID: RecordImportReview.Decision], newProfileName: String?
+    ) throws {
+        var updated = vault
+        var imported = try review.applying(decisions)
+        if let name = newProfileName {
+            guard !updated.profiles.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+                throw DataIssue("That profile name already exists. Choose it as the destination or enter a different name.")
+            }
+            imported.name = name
+            updated.profiles.append(imported)
+        } else {
+            guard let index = updated.profiles.firstIndex(where: { $0.id == review.destination.id }),
+                  updated.profiles[index] == review.destination else {
+                throw DataIssue("The destination profile changed. Reopen the import to review the latest records.")
+            }
+            updated.profiles[index] = imported
+        }
+        try persist(updated)
+        selectProfile(imported.id)
+        showStatus(VeraText.text("Import applied."))
     }
 
     func chooseRestore() {

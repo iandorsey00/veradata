@@ -62,6 +62,9 @@ struct RecordDraft: Identifiable, Equatable {
             }
             try addAliases(item.shortcuts, for: key)
         }
+        if kind == .employment, let end = fields["endDate"]?.string {
+            fields["endDate"] = .string(Record.canonicalEmploymentEndDate(end))
+        }
         let record = Record(id: id, kind: kind, label: label.trimmingCharacters(in: .whitespacesAndNewlines),
                             fields: fields, aliases: aliases)
         try record.validate()
@@ -171,7 +174,7 @@ struct RecordEditor: View {
                             .labelsHidden().accessibilityLabel("Record name").focused($nameFocused)
                     }
                     ForEach(draft.kind.fields, id: \.key) { field in
-                        KnownFieldEditor(field: field, draft: Binding(
+                        KnownFieldEditor(field: field, acceptsPresent: draft.kind == .employment && field.key == "endDate", draft: Binding(
                             get: { draft.known[field.key] ?? KnownDraft() },
                             set: { draft.known[field.key] = $0 }
                         ))
@@ -277,6 +280,7 @@ struct RecordEditor: View {
 
 private struct KnownFieldEditor: View {
     let field: FieldDefinition
+    let acceptsPresent: Bool
     @Binding var draft: KnownDraft
 
     var body: some View {
@@ -306,11 +310,16 @@ private struct KnownFieldEditor: View {
                         Text("One item per line.").font(.caption).foregroundStyle(.secondary)
                     }
                 case .text, .phone, .date:
-                    TextField(field.style == .date ? VeraText.text("YYYY, YYYY-MM, or YYYY-MM-DD") : "", text: entry)
+                    TextField(placeholder, text: entry)
                         .labelsHidden().accessibilityLabel(field.localizedLabel)
                 }
             }
         }
+    }
+
+    private var placeholder: String {
+        if acceptsPresent { return VeraText.text("Date or Present") }
+        return field.style == .date ? VeraText.text("YYYY, YYYY-MM, or YYYY-MM-DD") : ""
     }
 
     private var entry: Binding<String> {

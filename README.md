@@ -32,6 +32,14 @@ You can also invoke search with **⌘K** inside VeraData. If the global shortcut
 - **Share selected data.** Choose **File › Export Data** to select fields and individual list items across the active profile. Arrange the records, then review the exact JSON before saving. Use a record’s **Export Selected Fields** command for the original single-record flat JSON format.
 - **Back up everything.** Choose **File › Back Up Vault** for all profiles, values, aliases, and the global shortcut. **File › Restore Vault** validates a backup and asks before replacing the current vault. The vault and exports contain readable JSON.
 
+## Import records
+
+Choose **File › Import Records** to preview JSON and add or selectively update records in an existing or new profile. The importer accepts VeraData backups, iPhone transfers, structured selections, and plain JSON objects. Other tools can create an import file using the [example](examples/record-import.json).
+
+Select the destination profile before reviewing. Possible matches start as **Skip**. To update one, choose the existing record and check the individual fields you want to change. When a backup contains several profiles, import each desired source profile separately.
+
+For an ongoing job, enter **Present** as the employment end date. Dates still accept year, year–month, or full-date precision.
+
 ## Build a résumé in VeraFlow
 
 1. In VeraData, choose **File › Export Data** and set **Format** to **VeraFlow résumé**.
