@@ -30,7 +30,7 @@ You can also invoke search with **⌘K** inside VeraData. If the global shortcut
 - **Find saved coordinates.** In an address editor, choose **Add Coordinates** and enter decimal latitude and longitude. Search for the address name and `coordinates` to copy the pair for a map or form.
 - **Keep address history.** Add a new address record when you move. Enter the previous address’s **Through** date so it appears as historical. Address use and date history are stored independently.
 - **Share selected data.** Choose **File › Export Data** to select fields and individual list items across the active profile. Arrange the records, then review the exact JSON before saving. Use a record’s **Export Selected Fields** command for the original single-record flat JSON format.
-- **Back up everything.** Choose **File › Back Up Vault** for all profiles, values, aliases, and the global shortcut. **File › Restore Vault** validates a backup and asks before replacing the current vault. The vault and exports contain readable JSON.
+- **Back up the vault.** Choose **File › Back Up Vault** for all profiles, values, aliases, and the global shortcut. **File › Restore Vault** validates a backup and asks before replacing the current vault. For routine recovery, **File › Revision History** lets you inspect and restore an earlier vault and its presets. History can retain deleted data. The vault and exports contain readable JSON.
 
 ## Import records
 
@@ -63,7 +63,7 @@ Open the built app at `dist/VeraData.app` to save the preset. From the VeraData 
     ../veraflow/examples/source/resume-pdf.vf --output Resume.pdf
 ```
 
-The preset uses the latest values for your selected scalar fields. If a selected list or object changes, review the export again and replace the preset. For other VeraFlow templates, use **Single-record JSON** from the record’s export menu to choose a flat set of fields. For Markdown on stdout, use VeraFlow’s `render` command and omit `--output`.
+A whole-field selection follows the current scalar, list, or object. If a preset uses individual list items and VeraData can no longer match them safely, review the selection and update the preset. For other VeraFlow templates, use **Single-record JSON** from the record’s export menu to choose a flat set of fields. For Markdown on stdout, use VeraFlow’s `render` command and omit `--output`.
 
 To save the same selected records as structured data with original field values and lists, use:
 
@@ -73,7 +73,7 @@ To save the same selected records as structured data with original field values 
 
 For another person, switch to their profile, review their data, and save a distinct preset such as `second-resume`. Run the same pipeline with `--preset second-resume` and a different PDF filename.
 
-The VeraData CLI uses the desktop app’s vault by default. Preset names are case-insensitive. You can also create and edit profiles and records, preview imports, manage presets, or export an iPhone transfer entirely from the terminal. See the [command-line guide](docs/cli.md) for a fictional walkthrough and examples. Presets live in a `vault.json.export-presets` directory beside the vault file and are backed up separately.
+The VeraData CLI uses the desktop app’s vault by default. Preset names are case-insensitive. You can also create and edit profiles and records, preview imports, manage presets, or export an iPhone transfer entirely from the terminal. See the [command-line guide](docs/cli.md) for a fictional walkthrough and examples. Presets live beside the vault and are backed up separately. For related changes, use `veradata apply FILE` to preview the batch, then apply it with its preview token. VeraData saves automatic recovery revisions for both desktop and CLI edits. [Changelog](CHANGELOG.md)
 
 ## VeraData on iPhone
 

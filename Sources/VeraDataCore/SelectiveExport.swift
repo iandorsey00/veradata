@@ -34,6 +34,16 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    func permitsStoredSelection(_ key: String, in record: Record) -> Bool {
+        if includes(key, in: record) { return true }
+        guard self == .veraFlowResume, let value = record.fields[key],
+              record.kind == .custom || Self.resumeFields[record.kind, default: []].contains(key) else { return false }
+        // A live optional résumé field can become blank without losing its saved selection.
+        if value == .null || value.string != nil { return true }
+        return (record.kind == .custom || ["responsibilities", "achievements"].contains(key))
+            && value.array?.isEmpty == true
+    }
+
     private static let resumeFields: [RecordKind: Set<String>] = [
         .contact: ["name", "givenName", "familyName", "email", "phone", "summary", "headline", "website", "portfolio", "linkedin", "github", "GitHub"],
         .employment: ["employer", "title", "startDate", "endDate", "location", "responsibilities", "achievements"],
@@ -171,7 +181,7 @@ public enum SelectiveExport {
             }
             var fields: [String: JSONValue] = [:]
             for (key, selected) in chosen.fields {
-                guard format.includes(key, in: record), let value = record.fields[key] else {
+                guard format.permitsStoredSelection(key, in: record), let value = record.fields[key] else {
                     throw DataIssue("A selected field is missing or unavailable in this format.")
                 }
                 switch selected {

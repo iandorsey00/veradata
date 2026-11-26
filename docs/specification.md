@@ -112,3 +112,9 @@ In a valid file, `profiles` contains at least one profile, and every profile con
 On iPhone, choose **Import Transfer** and pick the file in Files. Import validates the complete file before replacing a previous download. VeraData keeps a protected local copy for offline lookup. You can remove that copy from the app’s options menu. The original transfer file remains wherever you saved it.
 
 The transfer file is readable JSON. Use the existing **Export Selected Fields** action on Mac for a smaller file when a recipient only needs specific fields from a record.
+
+## Change sets and live preset selections
+
+A [version 1 change set](../schema/change-set-v1.schema.json) names an existing profile ID and an ordered list of record or preset edits. The CLI validates it against the current vault, previews the diff, and requires the preview token to apply it. The same state change either completes as a unit or remains pending for journal recovery. See the [CLI guide](cli.md#review-and-apply-a-batch) for the operations and a fictional example.
+
+A whole-field preset selection follows the live value, including changed object contents and added or removed list items. Indexed list selections keep their fingerprints and require review when the source list changes. Older preset definitions load with these rules. Newly saved presets use version 2. The vault and transfer schemas, and ordinary export values, remain separate from transaction and revision metadata.

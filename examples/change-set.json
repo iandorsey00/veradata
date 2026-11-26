@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "profile": "demo",
+  "operations": [
+    {
+      "operation": "record.update",
+      "record": "contact",
+      "fields": {"headline": "Operations Associate"}
+    },
+    {
+      "operation": "record.update",
+      "record": "job",
+      "fields": {
+        "responsibilities": [
+          "Reviewed records for accuracy.",
+          "Organized incoming materials."
+        ]
+      }
+    },
+    {
+      "operation": "preset.update",
+      "preset": "demo-resume",
+      "record": "contact",
+      "fields": {"headline": true}
+    }
+  ]
+}

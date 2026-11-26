@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VeraData change set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "profile", "operations"],
+  "properties": {
+    "version": {"const": 1},
+    "profile": {"$ref": "#/$defs/id"},
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"oneOf": [{"$ref": "#/$defs/recordUpdate"}, {"$ref": "#/$defs/presetUpdate"}]}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+    "recordUpdate": {
+      "type": "object",
+      "required": ["operation", "record"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {"const": "record.update"},
+        "record": {"$ref": "#/$defs/id"},
+        "label": {"type": "string"},
+        "fields": {"type": "object"},
+        "unset": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "presetUpdate": {
+      "type": "object",
+      "required": ["operation", "preset", "record"],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {"const": "preset.update"},
+        "preset": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
+        "record": {"$ref": "#/$defs/id"},
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "boolean"},
+              {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 0}}
+            ]
+          }
+        },
+        "section": {"enum": ["skills", "projects", "languages", "certifications", null]},
+        "position": {"type": "integer", "minimum": 0},
+        "excludeRecord": {"type": "boolean"}
+      }
+    }
+  }
+}

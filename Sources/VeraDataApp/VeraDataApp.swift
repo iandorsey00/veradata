@@ -25,7 +25,8 @@ struct VeraDataApp: App {
                     .disabled(!state.canEdit)
                 Divider()
                 Button("Back Up Vault…", action: state.backup).disabled(!state.canEdit)
-                Button("Restore Vault…", action: state.chooseRestore).disabled(!state.canEdit)
+                Button("Restore Vault…", action: state.chooseRestore)
+                Button("Revision History…") { state.historyOpen = true }
                 Button("Import Records…", action: state.chooseImport).disabled(!state.canEdit)
                 Button("Export Data…") { state.openExport() }.disabled(!state.canExportData)
                 Button("Export for iPhone…") { state.phoneExportOpen = true }.disabled(!state.canExportToPhone)
@@ -68,11 +69,14 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     @Published var importRequest: ImportRequest?
     @Published var phoneExportOpen = false
     @Published var exportRequest: ExportRequest?
+    @Published var historyOpen = false
+    @Published private(set) var reloadPending = false
     @Published private(set) var canEdit = true
     @Published private(set) var shortcutAvailable = false
 
     private(set) var index = RetrievalIndex(records: [])
     private var store: VaultFile
+    var stateStore: VaultStateStore { VaultStateStore(vaultURL: store.url) }
     private var hotkey: GlobalShortcut?
     private var searchPanel: NSPanel?
     private var returnApp: NSRunningApplication?
@@ -238,15 +242,60 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
 
     func restore(_ candidate: Vault) {
         restoreCandidate = nil
-        if commit(candidate) {
-            selectProfile(vault.profiles[0].id)
-            registerShortcut()
+        do {
+            try store.restore(candidate)
+            try reloadVault()
             showStatus(VeraText.text("Vault restored."))
-        }
+        } catch { problem = error.localizedDescription }
     }
 
     func openExport(recordID: Record.ID? = nil) {
-        exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url))
+        do {
+            let snapshot = try stateStore.snapshot()
+            guard try snapshot.vault() == vault else { throw VaultStateConflict.stale }
+            exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url),
+                                          token: snapshot.token)
+        } catch { problem = error.localizedDescription }
+    }
+
+    func restoreRevision(_ id: String, expected: String) throws {
+        try stateStore.restore(id, expected: expected)
+        try reloadVault()
+        showStatus(VeraText.text("Vault and presets restored."))
+    }
+
+    func refreshExternalChanges() {
+        do {
+            guard try store.hasExternalChanges() else { reloadPending = false; return }
+            if editor != nil || importRequest != nil || exportRequest != nil || restoreCandidate != nil || phoneExportOpen {
+                reloadPending = true
+            } else {
+                try reloadVault()
+            }
+        } catch VaultStateConflict.busy {
+            // The next refresh can try again once the writer releases its lock.
+        } catch {
+            // Keep a valid view (and any open draft) when an external file is unreadable.
+            reloadPending = canEdit
+        }
+    }
+
+    private func reloadVault() throws {
+        let saved = try store.load() ?? Vault(profiles: [Profile(name: VeraText.text("Personal"))])
+        let selected = recordID
+        let previousShortcut = vault.shortcut
+        vault = saved
+        let selectedProfile = saved.profiles.first { $0.id == profileID } ?? saved.profiles[0]
+        if selectedProfile.id == profileID {
+            index = RetrievalIndex(records: selectedProfile.records)
+            recordID = selectedProfile.records.contains { $0.id == selected } ? selected : selectedProfile.records.first?.id
+            if !selectedProfile.records.contains(where: { $0.id == pinnedRecordID }) { pinnedRecordID = nil }
+        } else {
+            selectProfile(selectedProfile.id)
+        }
+        canEdit = true
+        reloadPending = false
+        if previousShortcut != vault.shortcut { registerShortcut() }
     }
 
     func saveSelection(_ data: Data, suggestedFilename: String) {

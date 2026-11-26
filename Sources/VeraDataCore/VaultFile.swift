@@ -1,11 +1,6 @@
 import Foundation
-#if canImport(Darwin)
-import Darwin
-#else
-import Glibc
-#endif
 
-/// A local vault with optimistic conflict detection and atomic replacement.
+/// A local vault with optimistic conflict detection and recoverable replacement.
 public struct VaultFile {
     public let url: URL
     private var revision: Data?
@@ -21,56 +16,40 @@ public struct VaultFile {
     }
 
     public mutating func load() throws -> Vault? {
-        let data = try currentData()
-        let vault = try data.map { try Vault(data: $0) }
+        let data = try VaultStateStore(vaultURL: url).vaultBytes()
+        let vault = try data.map(Vault.init(data:))
         revision = data
         loaded = true
         return vault
     }
 
-    public mutating func save(_ vault: Vault) throws {
+    public func hasExternalChanges() throws -> Bool {
+        let bytes = try VaultStateStore(vaultURL: url).vaultBytes()
+        return !loaded || bytes != revision
+    }
+
+    public mutating func save(_ vault: Vault, summary: String = "Update vault") throws {
         guard loaded else { throw DataIssue("Open the current vault before saving.") }
         let data = try vault.data()
-        let folder = url.deletingLastPathComponent()
-        let manager = FileManager.default
-        try manager.createDirectory(at: folder, withIntermediateDirectories: true,
-                                    attributes: [.posixPermissions: 0o700])
-        let lock = open(folder.appendingPathComponent(".vault.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
-        guard lock >= 0 else { throw DataIssue("Unable to open the local vault lock.") }
-        defer { close(lock) }
-        guard flock(lock, LOCK_EX | LOCK_NB) == 0 else {
-            throw DataIssue("Another instance is saving. Try again in a moment.")
+        let expected = revision
+        try VaultStateStore(vaultURL: url).commit(summary: summary) { state in
+            guard state.vaultData == expected else { throw VaultStateConflict.stale }
+            // Older files may use different whitespace for the exact same vault.
+            if let current = state.vaultData, try Vault(data: current) == vault { return }
+            state.vaultData = data
         }
-        guard try currentData() == revision else {
-            throw DataIssue("The vault changed on disk. Reopen VeraData before making more edits.")
-        }
-
-        let pending = folder.appendingPathComponent(".vault-\(UUID().uuidString).tmp")
-        guard manager.createFile(atPath: pending.path, contents: nil,
-                                 attributes: [.posixPermissions: 0o600]) else {
-            throw DataIssue("Unable to create a private file for the vault.")
-        }
-        defer { try? manager.removeItem(at: pending) }
-        let handle = try FileHandle(forWritingTo: pending)
-        do {
-            try handle.write(contentsOf: data)
-            try handle.synchronize()
-            try handle.close()
-        } catch {
-            try? handle.close()
-            throw error
-        }
-        guard rename(pending.path, url.path) == 0 else {
-            throw DataIssue("Unable to replace the local vault file.")
-        }
-        revision = data
+        if try expected.map(Vault.init(data:)) != vault { revision = data }
     }
 
     /// Replace the current file after an explicit restore, even if its JSON cannot be decoded.
     public mutating func restore(_ vault: Vault) throws {
-        revision = try currentData()
-        loaded = true
-        try save(vault)
+        let data = try vault.data()
+        let result = try VaultStateStore(vaultURL: url).commit(summary: "Restore backup") { state in
+            if (try? state.vault()) == vault { return }
+            state.vaultData = data
+        }
+        if result.changed { revision = data; loaded = true }
+        else { _ = try load() }
     }
 
     public static func readBackup(_ url: URL) throws -> Vault {
@@ -83,10 +62,5 @@ public struct VaultFile {
         let data = try file.read(upToCount: JSONValue.maxBytes + 1) ?? Data()
         guard data.count <= JSONValue.maxBytes else { throw DataIssue("JSON exceeds the 16 MiB limit.") }
         return data
-    }
-
-    private func currentData() throws -> Data? {
-        do { return try Self.readData(url) }
-        catch let error as CocoaError where [.fileNoSuchFile, .fileReadNoSuchFile].contains(error.code) { return nil }
     }
 }

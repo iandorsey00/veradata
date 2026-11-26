@@ -35,7 +35,7 @@ struct ExportPresetTests {
         #expect(output["responsibilities"] == .array([.string("Published guides")]))
     }
 
-    @Test func changedListsObjectsAndMissingFieldsRequireReview() throws {
+    @Test func selectedItemsAndMissingFieldsRequireReviewButWholeValuesStayLive() throws {
         let source = profile()
         let preset = try ExportPreset(name: "example", profile: source, selection: selection, format: .structured)
         var changed = source
@@ -43,11 +43,26 @@ struct ExportPresetTests {
         #expect(throws: DataIssue.self) { try preset.selection(in: changed) }
         changed = source
         changed.records[0].fields["details"] = .object(["location": .string("Fictional office"), "new": .bool(true)])
-        #expect(throws: DataIssue.self) { try preset.selection(in: changed) }
+        #expect(try preset.selection(in: changed).records == selection)
         changed = source
         changed.records[0].fields.removeValue(forKey: "title")
         #expect(throws: DataIssue.self) { try preset.selection(in: changed) }
         #expect(throws: DataIssue.self) { try preset.selection(in: profile("other")) }
+    }
+
+    @Test func legacyWholeListTracksAddedAndRemovedValues() throws {
+        var source = profile()
+        let encoded = Data("""
+        {"version":1,"name":"old","profileID":"example","formatID":"structured",
+         "records":[{"id":"job","fields":{"responsibilities":{"fingerprint":"legacy-hash"}}}]}
+        """.utf8)
+        let legacy = try JSONDecoder().decode(ExportPreset.self, from: encoded)
+        source.records[0].fields["responsibilities"] = .array([.string("Replacement"), .string("New item"), .string("Added")])
+        let exported = try JSONValue.parse(legacy.data(from: Vault(profiles: [source])))
+        #expect(exported.object?["records"]?.array?.first?.object?["fields"]?.object?["responsibilities"] ==
+            .array([.string("Replacement"), .string("New item"), .string("Added")]))
+        source.records[0].fields["responsibilities"] = .array([])
+        #expect(try legacy.selection(in: source).records.count == 1)
     }
 
     @Test func resumePresetCanExportSelectedValuesWithoutMarkdown() throws {

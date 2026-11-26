@@ -15,6 +15,19 @@ struct MainView: View {
             detail
         }
         .background(WindowCapture { state.mainWindow = $0 })
+        .safeAreaInset(edge: .top) {
+            if state.reloadPending {
+                Text("VeraData changed on disk. Close your open edit or review to reload. Unsaved changes stay in your draft.")
+                    .font(.callout).padding(8)
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) }
+                catch { return }
+                state.refreshExternalChanges()
+            }
+        }
         .sheet(item: $state.editor) { draft in
             RecordEditor(initial: draft, save: state.saveRecord)
         }
@@ -26,6 +39,9 @@ struct MainView: View {
         }
         .sheet(item: $state.exportRequest) { request in
             SelectiveExportView(request: request, save: state.saveSelection)
+        }
+        .sheet(isPresented: $state.historyOpen) {
+            RevisionHistoryView(store: state.stateStore, restore: state.restoreRevision)
         }
         .alert("VeraData", isPresented: Binding(
             get: { state.problem != nil }, set: { if !$0 { state.problem = nil } }

@@ -1,8 +1,8 @@
 import VeraDataCore
 
 struct CLIArguments {
-    private static let switches: Set<String> = ["--help", "-h", "--yes", "--apply", "--replace", "--values", "--copy", "--all"]
-    private static let repeatable: Set<String> = ["--set", "--unset", "--record", "--exclude", "--pick"]
+    private static let switches: Set<String> = ["--help", "-h", "--yes", "--apply", "--replace", "--values", "--copy", "--all", "--commit", "--human", "--show-values", "--json-errors", "--remove-record"]
+    private static let repeatable: Set<String> = ["--set", "--unset", "--record", "--exclude", "--pick", "--include", "--items"]
     private let switches: Set<String>
     private let values: [String: [String]]
     let positionals: [String]
@@ -41,7 +41,7 @@ struct CLIArguments {
     func many(_ option: String) -> [String] { values[option] ?? [] }
 
     func validate(_ count: ClosedRange<Int>, _ options: Set<String> = [], vault: Bool = true) throws {
-        var allowed = options
+        var allowed = options.union(["--json-errors"])
         if vault { allowed.insert("--vault") }
         if let invalid = Set(values.keys).union(switches).subtracting(allowed).sorted().first {
             throw DataIssue("Unsupported option \(invalid) for this command. See --help.")

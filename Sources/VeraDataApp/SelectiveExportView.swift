@@ -7,6 +7,7 @@ struct ExportRequest: Identifiable {
     let profile: Profile
     let recordID: Record.ID?
     let presets: ExportPresetStore
+    let token: String
 }
 
 struct SelectiveExportView: View {
@@ -25,10 +26,12 @@ struct SelectiveExportView: View {
     @ViewState private var editingPreset = false
     @ViewState private var confirmReplacement = false
     @ViewState private var presetStatus: String?
+    @ViewState private var presetToken: String
 
     init(request: ExportRequest, save: @escaping (Data, String) -> Void) {
         self.request = request
         self.save = save
+        _presetToken = State(initialValue: request.token)
         let record = request.profile.records.first { $0.id == request.recordID }
         _format = State(initialValue: record?.fields.values.contains(where: \.isScalar) == true ? .flatRecord : .structured)
         _recordID = State(initialValue: request.recordID ?? request.profile.records.first(where: { !$0.fields.isEmpty })?.id)
@@ -140,6 +143,13 @@ struct SelectiveExportView: View {
         .padding(24)
         .frame(width: 780, height: 575)
         .task { refreshPresets() }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) }
+                catch { return }
+                refreshChanges()
+            }
+        }
         .confirmationDialog("Replace this export preset?", isPresented: $confirmReplacement, titleVisibility: .visible) {
             Button("Replace Preset", role: .destructive) { savePreset(replace: true) }
             Button("Cancel", role: .cancel) {}
@@ -169,6 +179,22 @@ struct SelectiveExportView: View {
         catch { problem = error.localizedDescription }
     }
 
+    private func refreshChanges() {
+        do {
+            let state = try request.presets.snapshot()
+            guard state.token != presetToken else { return }
+            if selection.isEmpty, preview == nil, !editingPreset,
+               try state.vault()?.profiles.first(where: { $0.id == request.profile.id }) == request.profile {
+                presetToken = state.token
+                refreshPresets()
+            } else {
+                problem = VeraText.text("The vault or presets changed. Reopen Export Data before saving this selection.")
+            }
+        } catch VaultStateConflict.busy {
+            // Try again once the current writer finishes.
+        } catch { problem = error.localizedDescription }
+    }
+
     private func loadPreset(_ name: String) {
         do {
             let loaded = try request.presets.load(name).selection(in: request.profile)
@@ -184,7 +210,7 @@ struct SelectiveExportView: View {
     private func savePreset(replace: Bool = false) {
         do {
             let preset = try ExportPreset(name: presetName, profile: request.profile, selection: selection, format: format)
-            try request.presets.save(preset, replace: replace)
+            presetToken = try request.presets.save(preset, replace: replace, expected: presetToken)
             problem = nil
             presetName = preset.name
             namedSelection = (preset.name, format, selection)

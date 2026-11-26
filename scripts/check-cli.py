@@ -108,11 +108,69 @@ def verify(binary: Path, root: Path) -> None:
     assert json.loads(run("backup", path=restored)) == backup
     assert run("presets", path=restored) == ""
 
+    verify_transactions(binary, vault, output, run)
+
     run("record", "delete", "second-person", "--profile", "second", "--yes")
     run("profile", "delete", "second", "--yes")
     run("preset", "delete", "resume", ok=False)
     run("preset", "delete", "resume", "--yes")
     assert run("presets") == ""
+
+
+def verify_transactions(binary: Path, vault: Path, output, run) -> None:
+    """Preview exact batches and race two independent writers against that same state."""
+    def change(headline: str) -> dict:
+        return {"version": 1, "profile": "demo", "operations": [
+            {"operation": "record.update", "record": "contact", "fields": {"headline": headline}},
+            {"operation": "record.update", "record": "job", "fields": {"responsibilities": ["Checked intake"]}},
+            {"operation": "preset.update", "preset": "resume", "record": "contact", "fields": {"headline": True}},
+            {"operation": "preset.update", "preset": "resume", "record": "job", "fields": {"responsibilities": True}},
+        ]}
+
+    stages = [change("Operations Associate"), change("Operations Coordinator")]
+    file_before = vault.read_bytes()
+    previews = [output("apply", "-", stdin=stage) for stage in stages]
+    assert vault.read_bytes() == file_before
+    assert all("Operations Associate" not in json.dumps(p) for p in previews)
+    assert "Operations Associate" in run("apply", "-", "--human", "--show-values", stdin=stages[0])
+    assert all(p["changed"] and not p["committed"] for p in previews)
+
+    children = [subprocess.Popen(
+        [str(binary), "apply", "-", "--apply", "--expect", preview["token"], "--json-errors", "--vault", str(vault)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ) for preview in previews]
+    for child, stage in zip(children, stages):
+        assert child.stdin is not None
+        child.stdin.write(json.dumps(stage))
+        child.stdin.close()
+        child.stdin = None
+    results = [child.communicate(timeout=15) for child in children]
+    statuses = [child.returncode for child in children]
+    assert sorted(statuses) == [0, 3], (statuses, results)
+    winner = statuses.index(0)
+    revision = json.loads(results[winner][0])["revision"]
+    assert json.loads(results[1 - winner][1])["error"] == "conflict"
+    record = output("record", "show", "contact")
+    assert record["fields"]["headline"] == stages[winner]["operations"][0]["fields"]["headline"]
+    assert output("export", "--preset", "resume")["headline"] == record["fields"]["headline"]
+    assert "Checked intake" in output("export", "--preset", "resume")["experience_markdown"]
+    assert not output("apply", "-", stdin=stages[winner])["changed"]
+
+    output("record", "update", "job", "--fields", "-", stdin={"responsibilities": []})
+    assert "Checked intake" not in output("export", "--preset", "resume")["experience_markdown"]
+    patch = output("preset", "update", "resume", "--record", "contact", "--exclude", "headline")
+    assert patch["changed"]
+    output("preset", "update", "resume", "--record", "contact", "--exclude", "headline",
+           "--apply", "--expect", patch["token"])
+    assert "headline" not in output("export", "--preset", "resume")
+
+    preview = output("history", "restore", revision)
+    output("history", "restore", revision, "--apply", "--expect", preview["token"])
+    assert "headline" not in output("record", "show", "contact")["fields"]
+    assert output("history")[0]["summary"] == "Restore revision"
+    assert output("history", "prune", "--keep", "2")["pruningCandidates"]
+    output("history", "retention", "--keep", "2", "--apply")
+    assert len(output("history")) == 2
 
 
 if __name__ == "__main__":

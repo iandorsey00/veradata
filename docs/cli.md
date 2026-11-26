@@ -45,7 +45,7 @@ Search returns metadata with record IDs, field paths, and representation labels.
 
 Use `record update --fields FILE` to merge a JSON object into a record. Arrays, numbers, and explicit null values keep their types. Use `--set KEY=TEXT` for text, or repeat `--unset KEY` to omit fields entirely. For values you prefer to keep out of shell history, use `--fields FILE` or `--fields -`. Supply `--aliases FILE` to replace the complete alias map with a JSON object such as `{";mail":"email"}`. Removing a field also removes its aliases unless you provide a new map.
 
-`profile rename PROFILE NAME` changes the profile name while keeping its ID. `profile delete PROFILE --yes` and `record delete RECORD --yes` explicitly confirm deletion. Keep at least one profile. `shortcut` reads the saved hotkey setting. Supply `space`, `j`, `k`, or `off` to change it. Reopen the app to pick up terminal changes to an already-open vault.
+`profile rename PROFILE NAME` changes the profile name while keeping its ID. `profile delete PROFILE --yes` and `record delete RECORD --yes` explicitly confirm deletion. Keep at least one profile. `shortcut` reads the saved hotkey setting. Supply `space`, `j`, `k`, or `off` to change it. The app reloads terminal changes after any open edit or review sheet closes.
 
 ## Preview and apply an import
 
@@ -100,4 +100,44 @@ VeraFlow accepts the default résumé export directly on stdin. The `structured`
 
 Repeat `--record` for specific iPhone records or use `--all` for every record in the selected profile. To select records across profiles, repeat `--pick PROFILE_ID:RECORD_ID`. A backup contains every profile and the shortcut setting. Back up the vault’s adjacent `vault.json.export-presets` directory separately to retain presets. Treat backup and export files as readable personal data.
 
-To roll back the app, build the previous release tag in a separate checkout. The vault still uses schema version 1. Older builds may reject newer résumé section assignments in presets, so retain a copy of the preset directory when changing versions.
+To roll back the app, build the previous release tag in a separate checkout. The vault still uses schema version 1. Older builds may reject newer preset versions. Recover any pending transaction in the current version before rolling back, and retain a copy of the preset directory. Avoid running mixed versions against the same vault.
+
+## Review and apply a batch
+
+A change set can edit several records and a saved export preset together. Use the profile and record IDs from `profiles` and `records`. The [fictional change set](../examples/change-set.json) works with the demo and the `demo-resume` preset created in this guide. Its shape is documented in the [change-set schema](../schema/change-set-v1.schema.json).
+
+```sh
+./scripts/veradata apply examples/change-set.json --vault "$vault" --human
+./scripts/veradata apply examples/change-set.json --vault "$vault" --apply --expect PREVIEW_TOKEN
+```
+
+Replace `PREVIEW_TOKEN` with the token printed by the preview. The token covers the current vault, presets, and change set. If anything changes, preview again. `--commit` is accepted as an alias for `--apply`. Both accept `-` in place of the filename for stdin.
+
+Operations run in order. `record.update` merges typed JSON values under `fields`, uses `unset` to remove named fields, and optionally changes `label`. Omitted fields keep their values. `preset.update` targets a named preset and a record. A field choice of `true` selects the whole current value, `false` excludes the field, and an array chooses specific zero-based list items. You can assign a custom résumé `section`, set a zero-based `position`, or set `excludeRecord` to remove the record from the preset. Repeating a selective list choice explicitly reviews its current items.
+
+For one preset change, use the same preview and apply flow directly:
+
+```sh
+./scripts/veradata preset update demo-resume --record contact --include headline --vault "$vault"
+./scripts/veradata preset update demo-resume --record contact --include headline \
+  --vault "$vault" --apply --expect PREVIEW_TOKEN
+```
+
+Repeat `--include` or `--exclude` for fields. Use `--items FIELD=0,2`, `--section projects`, `--position 0`, or `--remove-record` as needed. `--section none` clears a section when allowed by the selected format. Full selection documents still work with `preset show`, `export --selection`, and `preset save`.
+
+Previews print JSON by default. `--human` prints a readable summary. Values are omitted by default, and `--show-values` reveals changed values intentionally. Use `--json-errors` for JSON diagnostics on stderr. Exit status is 0 for success, 1 for a failed command, and 3 when a current write or stale preview conflicts. Retry a busy write or review fresh state before applying a stale change.
+
+## Review or restore a revision
+
+```sh
+./scripts/veradata history --vault "$vault"
+./scripts/veradata history show REVISION_ID --vault "$vault" --human
+./scripts/veradata history restore REVISION_ID --vault "$vault" --human
+./scripts/veradata history restore REVISION_ID --vault "$vault" --apply --expect PREVIEW_TOKEN
+```
+
+Each entry describes a mutation and stores the state immediately **before** it. `history show` compares that state with the current state. Use `--against REVISION_ID` to compare with a different snapshot. Restore previews show the changes that would be applied. An applied restore also saves the state it replaces.
+
+The default retention is 30 revisions. `history retention` reports the configured limit. To change it, use `history retention --keep COUNT --apply`. To prune now without changing the ongoing limit, use `history prune --keep COUNT --apply`. VeraData retains a readable recovery revision if the other retained entries cannot be restored. Review a prune before adding `--apply`.
+
+History is local and may still contain values removed from your vault. Prune it explicitly when appropriate and keep an independent backup. Existing vaults and presets load in place. Whole-field choices from older presets also track current values. Selective lists retain their fingerprint checks and need review when the list changes. Close and reopen an outstanding app edit or export review if it conflicts with a CLI update.

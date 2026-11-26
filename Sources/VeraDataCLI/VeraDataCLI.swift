@@ -38,20 +38,39 @@ struct VeraDataCLI {
           preset show NAME
           preset save NAME --selection FILE [--replace]
           preset delete NAME --yes
+          preset update NAME --record ID [--include FIELD] [--exclude FIELD]
+            [--items FIELD=0,2] [--section SECTION] [--position N] [--remove-record]
+            [--apply --expect TOKEN]
+
+        Transactions and recovery:
+          apply FILE [--apply --expect TOKEN] [--human] [--show-values]
+          history
+          history show REVISION [--against REVISION] [--human] [--show-values]
+          history restore REVISION [--apply --expect TOKEN] [--show-values]
+          history prune --keep COUNT [--apply]
+          history retention [--keep COUNT --apply]
 
         Data commands accept --vault PATH. Profile-scoped commands accept --profile ID or NAME.
         With no --vault, commands use the desktop app's vault. With no --profile, use the first profile.
         FILE may be - for stdin. JSON and selected values go to stdout. Diagnostics go to stderr.
+        Transaction previews redact values. --json-errors writes structured diagnostics to stderr.
         Import previews changes by default. An export selection is a JSON file produced by selection
         or preset show. Preview it with export before saving or replacing a preset.
         """
 
     static func main() {
-        do { try run(Array(CommandLine.arguments.dropFirst())) }
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        do { try run(arguments) }
         catch {
-            let message = "veradata: \(error.localizedDescription)\n"
-            try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
-            exit(1)
+            let code: Int32 = error is VaultStateConflict ? 3 : 1
+            let human = Data("veradata: \(error.localizedDescription)\n".utf8)
+            let structured = arguments.prefix { $0 != "--" }.contains("--json-errors")
+            let payload = structured ? try? JSONValue.object([
+                "error": .string(code == 3 ? "conflict" : "failed"),
+                "message": .string(error.localizedDescription),
+            ]).data() : nil
+            try? FileHandle.standardError.write(contentsOf: payload ?? human)
+            exit(code)
         }
     }
 
@@ -61,7 +80,7 @@ struct VeraDataCLI {
             return
         }
         var remaining = Array(arguments.dropFirst())
-        let action = ["profile", "record", "preset"].contains(command) && remaining.first?.hasPrefix("-") == false
+        let action = ["profile", "record", "preset", "history"].contains(command) && remaining.first?.hasPrefix("-") == false
             ? remaining.removeFirst() : ""
         let args = try CLIArguments(remaining)
         if args.has("--help") || args.has("-h") {
@@ -76,7 +95,10 @@ struct VeraDataCLI {
         case "backup", "restore", "shortcut": try cli.maintenance(command, args)
         case "search", "get", "current": try cli.lookup(command, args)
         case "selection", "export", "export-phone": try cli.exports(command, args)
+        case "preset" where action == "update": try cli.updatePreset(args)
         case "presets", "preset": try cli.presets(command == "presets" ? "list" : action, args)
+        case "apply": try cli.applyChanges(args)
+        case "history": try cli.history(action.isEmpty ? "list" : action, args)
         default: throw DataIssue("Unknown command. See --help.")
         }
     }

@@ -39,10 +39,11 @@ extension CLICommands {
             case "structured": override = .structured
             default: throw DataIssue("Use --format structured to override the saved format.")
             }
-            let vault = try load()
+            let state = try VaultStateStore(vaultURL: store.url).snapshot()
+            guard let vault = try state.vault() else { throw DataIssue("VeraData vault not found.") }
             switch (args.one("--preset"), args.one("--selection")) {
             case (let name?, nil):
-                try emit(presetStore.load(name).data(from: vault, as: override))
+                try emit(state.preset(name).data(from: vault, as: override))
             case (nil, let path?):
                 let plan = try SelectionPlan(object(path))
                 let profile = vault.profiles[try profileIndex(plan.profile, in: vault.profiles)]
@@ -104,10 +105,11 @@ extension CLICommands {
             try args.validate(1...1, ["--selection", "--replace"])
             guard let path = args.one("--selection") else { throw DataIssue("Supply --selection FILE.") }
             let plan = try SelectionPlan(object(path))
-            let vault = try load()
+            let state = try VaultStateStore(vaultURL: store.url).snapshot()
+            guard let vault = try state.vault() else { throw DataIssue("VeraData vault not found.") }
             let profile = vault.profiles[try profileIndex(plan.profile, in: vault.profiles)]
             let preset = try ExportPreset(name: args.positionals[0], profile: profile, selection: plan.records, format: plan.format)
-            try presetStore.save(preset, replace: args.has("--replace"))
+            try presetStore.save(preset, replace: args.has("--replace"), expected: state.token)
             try emit(.object(["name": .string(preset.name), "profile": .string(preset.profileID)]))
         case "delete":
             try args.validate(1...1, ["--yes"])
