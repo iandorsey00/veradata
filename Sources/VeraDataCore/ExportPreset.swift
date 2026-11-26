@@ -22,9 +22,8 @@ public struct ExportPreset: Codable, Sendable {
     }
 
     public init(name: String, profile: Profile, selection: [ExportRecordSelection], format: ExportFormat) throws {
-        try Self.validateName(name)
         _ = try SelectiveExport.data(from: profile, selection: selection, format: format)
-        self.name = name
+        self.name = try Self.normalizedName(name)
         profileID = profile.id
         version = 1
         formatID = format.rawValue
@@ -46,33 +45,48 @@ public struct ExportPreset: Codable, Sendable {
 
     public func selection(in profile: Profile) throws -> (format: ExportFormat, records: [ExportRecordSelection]) {
         guard profile.id == profileID else { throw DataIssue("The export preset belongs to a different profile.") }
+        let saved = try definition()
+        let profileRecords = Dictionary(uniqueKeysWithValues: profile.records.map { ($0.id, $0) })
+        for record in records {
+            guard let source = profileRecords[record.id] else { throw Self.stale }
+            for (key, field) in record.fields {
+                guard let current = source.fields[key], saved.format.includes(key, in: source),
+                      try Self.digest(current) == field.fingerprint else { throw Self.stale }
+            }
+        }
+        return saved
+    }
+
+    /// Read the recorded choices even when they need to be reviewed against newer vault data.
+    public func definition() throws -> (format: ExportFormat, records: [ExportRecordSelection]) {
         guard version == 1, let format = ExportFormat(rawValue: formatID) else {
             throw DataIssue("This export preset format is not supported.")
         }
-        let profileRecords = Dictionary(uniqueKeysWithValues: profile.records.map { ($0.id, $0) })
         let selection = try records.map { record in
-            guard let source = profileRecords[record.id] else { throw Self.stale }
-            let fields = try record.fields.mapValuesWithKeys { key, saved -> ExportFieldSelection in
-                guard let current = source.fields[key], format.includes(key, in: source),
-                      try Self.digest(current) == saved.fingerprint else { throw Self.stale }
-                return saved.items.map { .items(Set($0)) } ?? .whole
-            }
             let section = record.section.flatMap(ResumeSection.init(rawValue:))
             guard record.section == nil || section != nil else { throw Self.stale }
+            let fields = record.fields.mapValues { field in
+                field.items.map { ExportFieldSelection.items(Set($0)) } ?? .whole
+            }
             return ExportRecordSelection(id: record.id, fields: fields, resumeSection: section)
         }
         return (format, selection)
     }
 
-    public func data(from vault: Vault) throws -> Data {
+    public func data(from vault: Vault, as format: ExportFormat? = nil) throws -> Data {
         guard let profile = vault.profiles.first(where: { $0.id == profileID }) else { throw Self.stale }
         let selected = try selection(in: profile)
-        return try SelectiveExport.data(from: profile, selection: selected.records, format: selected.format)
+        return try SelectiveExport.data(from: profile, selection: selected.records, format: format ?? selected.format)
+    }
+
+    public static func normalizedName(_ name: String) throws -> String {
+        try validateName(name)
+        return name.lowercased()
     }
 
     public static func validateName(_ name: String) throws {
-        guard name.wholeMatch(of: #/[a-z0-9][a-z0-9_-]{0,63}/#) != nil else {
-            throw DataIssue("Use up to 64 lowercase letters, digits, hyphens or underscores. Start with a letter or digit.")
+        guard name.wholeMatch(of: #/[A-Za-z0-9][A-Za-z0-9_-]{0,63}/#) != nil else {
+            throw DataIssue("Use up to 64 English letters, digits, hyphens or underscores. Start with a letter or digit.")
         }
     }
 
@@ -94,11 +108,11 @@ public struct ExportPresetStore: Sendable {
     }
 
     public func load(_ name: String) throws -> ExportPreset {
-        try ExportPreset.validateName(name)
+        let name = try ExportPreset.normalizedName(name)
         let data: Data
         do { data = try VaultFile.readData(path(name)) }
         catch let error as CocoaError where [.fileNoSuchFile, .fileReadNoSuchFile].contains(error.code) {
-            throw DataIssue("Export preset not found. Save it from VeraData’s export preview first.")
+            throw Self.missing
         }
         let preset = try JSONDecoder().decode(ExportPreset.self, from: data)
         guard preset.name == name else { throw DataIssue("The export preset filename does not match its contents.") }
@@ -117,13 +131,13 @@ public struct ExportPresetStore: Sendable {
     }
 
     public func save(_ preset: ExportPreset, replace: Bool = false) throws {
-        try ExportPreset.validateName(preset.name)
+        guard try ExportPreset.normalizedName(preset.name) == preset.name else {
+            throw DataIssue("The export preset filename does not match its contents.")
+        }
         let manager = FileManager.default
         try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let lock = open(directory.appendingPathComponent(".lock").path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
-        guard lock >= 0 else { throw DataIssue("Could not open the export preset lock.") }
+        let lock = try writeLock()
         defer { close(lock) }
-        guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw DataIssue("Another instance is saving an export preset. Try again.") }
         let destination = path(preset.name)
         if manager.fileExists(atPath: destination.path) {
             guard replace, try load(preset.name).profileID == preset.profileID else {
@@ -138,6 +152,31 @@ public struct ExportPresetStore: Sendable {
         }
         defer { try? manager.removeItem(at: pending) }
         guard rename(pending.path, destination.path) == 0 else { throw DataIssue("Could not save the export preset.") }
+    }
+
+    public func delete(_ name: String) throws {
+        let name = try ExportPreset.normalizedName(name)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            throw Self.missing
+        }
+        let lock = try writeLock()
+        defer { close(lock) }
+        guard unlink(path(name).path) == 0 else {
+            if errno == ENOENT { throw Self.missing }
+            throw DataIssue("Could not delete the export preset.")
+        }
+    }
+
+    private static let missing = DataIssue("Export preset not found.")
+
+    private func writeLock() throws -> Int32 {
+        let lock = open(directory.appendingPathComponent(".lock").path, O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        guard lock >= 0 else { throw DataIssue("Could not open the export preset lock.") }
+        guard flock(lock, LOCK_EX | LOCK_NB) == 0 else {
+            close(lock)
+            throw DataIssue("Another instance is changing an export preset. Try again.")
+        }
+        return lock
     }
 
     private func path(_ name: String) -> URL { directory.appendingPathComponent(name + ".json") }

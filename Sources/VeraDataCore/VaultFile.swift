@@ -66,6 +66,13 @@ public struct VaultFile {
         revision = data
     }
 
+    /// Replace the current file after an explicit restore, even if its JSON cannot be decoded.
+    public mutating func restore(_ vault: Vault) throws {
+        revision = try currentData()
+        loaded = true
+        try save(vault)
+    }
+
     public static func readBackup(_ url: URL) throws -> Vault {
         try Vault(data: readData(url))
     }

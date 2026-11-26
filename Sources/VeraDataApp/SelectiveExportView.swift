@@ -11,7 +11,7 @@ struct ExportRequest: Identifiable {
 
 struct SelectiveExportView: View {
     let request: ExportRequest
-    let save: (Data, ExportFormat) -> Void
+    let save: (Data, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @ViewState private var format: ExportFormat
@@ -21,11 +21,12 @@ struct SelectiveExportView: View {
     @ViewState private var problem: String?
     @ViewState private var savedNames: [String] = []
     @ViewState private var presetName = ""
+    @ViewState private var namedSelection: (name: String, format: ExportFormat, records: [ExportRecordSelection])?
     @ViewState private var editingPreset = false
     @ViewState private var confirmReplacement = false
     @ViewState private var presetStatus: String?
 
-    init(request: ExportRequest, save: @escaping (Data, ExportFormat) -> Void) {
+    init(request: ExportRequest, save: @escaping (Data, String) -> Void) {
         self.request = request
         self.save = save
         let record = request.profile.records.first { $0.id == request.recordID }
@@ -39,6 +40,13 @@ struct SelectiveExportView: View {
     }
 
     private var selection: [ExportRecordSelection] { chosen[format, default: []] }
+
+    private var suggestedFilename: String {
+        if let namedSelection, namedSelection.format == format, namedSelection.records == selection {
+            return namedSelection.name + ".json"
+        }
+        return format.filename
+    }
 
     private var available: [Record] {
         let flatRecordID = chosen[.flatRecord]?.first?.id ?? request.recordID
@@ -74,9 +82,9 @@ struct SelectiveExportView: View {
                     Spacer()
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     Button("Save JSON…") {
-                        let outputFormat = format
+                        let filename = suggestedFilename
                         dismiss()
-                        Task { @MainActor in save(preview, outputFormat) }
+                        Task { @MainActor in save(preview, filename) }
                     }.keyboardShortcut(.defaultAction)
                 }
             } else {
@@ -98,9 +106,13 @@ struct SelectiveExportView: View {
                     Text(instruction).foregroundStyle(.secondary)
                     Spacer()
                     if format == .veraFlowResume {
-                        Button("Select All Standard Fields", action: selectStandardResumeFields)
-                            .disabled(!available.contains { $0.kind == .contact || $0.kind == .employment || $0.kind == .education })
-                            .fixedSize()
+                        Menu("Select Résumé Fields") {
+                            Button("Standard") { selectResumeFields(.standard) }
+                            Button("Recommended") { selectResumeFields(.recommended) }
+                            Button("Select All") { selectResumeFields(.all) }
+                        }
+                        .disabled(available.isEmpty)
+                        .fixedSize()
                     }
                 }
                 HStack(spacing: 0) {
@@ -141,10 +153,13 @@ struct SelectiveExportView: View {
     private var presetEditor: some View {
         HStack {
             TextField("Preset name", text: $presetName)
-                .help("Use lowercase letters, digits, hyphens or underscores.")
+                .help("Use English letters, digits, hyphens or underscores.")
             Button("Save Preset") {
-                if savedNames.contains(presetName) { confirmReplacement = true }
-                else { savePreset() }
+                if let name = try? ExportPreset.normalizedName(presetName), savedNames.contains(name) {
+                    confirmReplacement = true
+                } else {
+                    savePreset()
+                }
             }.disabled(presetName.isEmpty)
         }
     }
@@ -161,6 +176,7 @@ struct SelectiveExportView: View {
             format = loaded.format
             recordID = loaded.records.first?.id
             presetName = name
+            namedSelection = (name, loaded.format, loaded.records)
             problem = nil
         } catch { problem = error.localizedDescription }
     }
@@ -170,7 +186,9 @@ struct SelectiveExportView: View {
             let preset = try ExportPreset(name: presetName, profile: request.profile, selection: selection, format: format)
             try request.presets.save(preset, replace: replace)
             problem = nil
-            presetStatus = VeraText.format("Saved preset “%@”.", presetName)
+            presetName = preset.name
+            namedSelection = (preset.name, format, selection)
+            presetStatus = VeraText.format("Saved preset “%@”.", preset.name)
             editingPreset = false
             refreshPresets()
         } catch { problem = error.localizedDescription }
@@ -179,23 +197,37 @@ struct SelectiveExportView: View {
     private var instruction: String {
         switch format {
         case .structured: return VeraText.text("Choose fields and list items. Selected records appear in export order.")
-        case .veraFlowResume: return VeraText.text("Select résumé fields from contact, work, and education records. Add custom skills or projects individually.")
+        case .veraFlowResume: return VeraText.text("Choose a selection, then review the fields and sections before exporting.")
         case .flatRecord: return VeraText.text("Choose individual values from this record.")
         }
     }
 
-    private func selectStandardResumeFields() {
+    private func selectResumeFields(_ scope: ResumeSelectionScope) {
         let contacts = available.filter { $0.kind == .contact }
         let selectedContact = selection.first { item in contacts.contains { $0.id == item.id } }?.id
         let contactID = selectedContact ?? (contacts.count == 1 ? contacts.first?.id : nil)
-        let standard = SelectiveExport.standardResumeSelection(in: request.profile, contactID: contactID)
-        let byID = Dictionary(uniqueKeysWithValues: standard.map { ($0.id, $0) })
+        let suggested = SelectiveExport.resumeSelection(in: request.profile, contactID: contactID, scope: scope)
+        let byID = Dictionary(uniqueKeysWithValues: suggested.map { ($0.id, $0) })
         let customIDs = Set(available.filter { $0.kind == .custom }.map(\.id))
         let previouslySelectedIDs = Set(selection.map(\.id))
-        chosen[format] = selection.compactMap { item in
-            byID[item.id] ?? (customIDs.contains(item.id) ? item : nil)
-        } + standard.filter { !previouslySelectedIDs.contains($0.id) }
-        problem = contacts.count > 1 && contactID == nil ? VeraText.text("Select fields from one contact to add it to the résumé.") : nil
+        chosen[format] = selection.compactMap { existing in
+            guard var item = byID[existing.id] else {
+                return scope == .recommended && customIDs.contains(existing.id) ? existing : nil
+            }
+            if scope == .recommended {
+                item.fields.merge(existing.fields) { _, kept in kept }
+            }
+            if scope != .standard, let section = existing.resumeSection { item.resumeSection = section }
+            return item
+        } + suggested.filter { !previouslySelectedIDs.contains($0.id) }
+
+        if contacts.count > 1 && contactID == nil {
+            problem = VeraText.text("Select fields from one contact to add it to the résumé.")
+        } else if scope == .all, selection.contains(where: { customIDs.contains($0.id) && $0.resumeSection == nil }) {
+            problem = VeraText.text("Assign a section to each selected custom record or exclude it before exporting.")
+        } else {
+            problem = nil
+        }
     }
 
     private var recordList: some View {

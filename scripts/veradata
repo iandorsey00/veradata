@@ -1,0 +1,16 @@
+#!/bin/bash
+
+repo="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)" || exit 1
+helper="$repo/dist/VeraData.app/Contents/Helpers/veradata"
+
+if [[ -f "$helper" && -x "$helper" ]]; then
+    shopt -s execfail
+    exec "$helper" "$@"
+fi
+
+{
+    printf 'veradata: Could not run the CLI helper at %s\n' "$helper"
+    printf 'Build VeraData on macOS 14 or later with Swift 6 and the macOS SDK.\n'
+    printf '  cd %q\n  ./scripts/build-app.sh\n' "$repo"
+} >&2
+exit 1

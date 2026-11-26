@@ -38,6 +38,45 @@ struct SelectiveExportTests {
         #expect(output["experience_markdown"]?.string?.contains("Kept reports") == true)
     }
 
+    @Test func recommendedResumeGroupsRelevantCustomFields() throws {
+        let skills = Record(id: "skills", kind: .custom, label: "Core Skills", fields: [
+            "skills": .array([.string("Documentation")]), "private note": .string("Unpublished"),
+        ])
+        let project = Record(id: "project", kind: .custom, label: "Internal display name", fields: [
+            "title": .string("Public project"), "type": .string("Independent Project"),
+            "description": .string("Built a guide."), "Source": .string("https://example.com/source"),
+        ])
+        let languages = Record(id: "languages", kind: .custom, label: "Languages", fields: [
+            "languages": .array([.string("English"), .string("Mandarin Chinese")]),
+        ])
+        let credential = Record(id: "credential", kind: .custom, label: "Certification", fields: [
+            "Credential": .string("Example certification"), "Year": .string("2025"),
+        ])
+        let notes = Record(id: "notes", kind: .custom, label: "Private notes", fields: [
+            "note": .string("Private details"),
+        ])
+        let source = Profile(name: "Fictional", records: [contact, job, skills, project, languages, credential, notes])
+        let recommended = SelectiveExport.resumeSelection(in: source, contactID: contact.id, scope: .recommended)
+        #expect(recommended.map(\.id) == [contact.id, job.id, skills.id, project.id, languages.id, credential.id])
+        #expect(recommended[2].fields == ["skills": .whole])
+
+        let bytes = try SelectiveExport.data(from: source, selection: recommended, format: .veraFlowResume)
+        let export = try #require(JSONValue.parse(bytes).object)
+        #expect(export["skills_markdown"]?.string?.contains("### Languages\n\n- English\n- Mandarin Chinese") == true)
+        #expect(export["skills_markdown"]?.string?.contains("### Certifications\n\n- Example certification · 2025") == true)
+        #expect(export["projects_markdown"]?.string?.contains("### Public project") == true)
+        #expect(export["projects_markdown"]?.string?.contains("<https://example.com/source>") == true)
+        #expect(!String(decoding: bytes, as: UTF8.self).contains("Internal display name"))
+        #expect(!String(decoding: bytes, as: UTF8.self).contains("Unpublished"))
+
+        let all = SelectiveExport.resumeSelection(in: source, contactID: contact.id, scope: .all)
+        #expect(all.last?.id == notes.id)
+        #expect(all.last?.resumeSection == nil)
+        #expect(throws: DataIssue.self) {
+            try SelectiveExport.data(from: source, selection: all, format: .veraFlowResume)
+        }
+    }
+
     @Test func structuredSelectionKeepsTypesAndExplicitOrder() throws {
         let data = try SelectiveExport.data(from: profile, selection: [
             .init(id: education.id, fields: ["institution": .whole]),
@@ -124,7 +163,7 @@ struct SelectiveExportTests {
             select(project, section: .projects), select(secondProject, section: .projects),
         ], format: .veraFlowResume)
         let result = try #require(JSONValue.parse(data).object)
-        #expect(result["links_markdown"] == .string("[Portfolio](<https://example.com/portfolio>)"))
+        #expect(result["links_markdown"] == .string("<https://example.com/portfolio>"))
         #expect(result["skills_markdown"] == .string("- Dispatch documentation\n- English and Mandarin"))
         #expect(result["projects_markdown"] == .string("### Intake redesign\n\n- Built a bilingual checklist.\n\n### Dispatch playbook\n\n- Consolidated procedures into one guide."))
         #expect(result["experience_markdown"]?.string?.hasPrefix("### Dispatch Coordinator") == true)

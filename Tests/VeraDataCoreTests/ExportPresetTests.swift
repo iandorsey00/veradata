@@ -50,13 +50,38 @@ struct ExportPresetTests {
         #expect(throws: DataIssue.self) { try preset.selection(in: profile("other")) }
     }
 
+    @Test func resumePresetCanExportSelectedValuesWithoutMarkdown() throws {
+        var source = profile()
+        source.records[0].fields["responsibilities"] = .array([
+            .string("Private draft"), .string("Published [guides]"),
+        ])
+        let selected = [ExportRecordSelection(id: "job", fields: [
+            "title": .whole, "responsibilities": .items([1]),
+        ])]
+        let preset = try ExportPreset(name: "example", profile: source, selection: selected, format: .veraFlowResume)
+        let vault = Vault(profiles: [source])
+        let structured = try JSONValue.parse(preset.data(from: vault, as: .structured))
+        #expect(structured.object?["format"] == .string("veradata-selection"))
+        #expect(structured.object?["records"]?.array?.first?.object?["fields"]?.object == [
+            "title": .string("Coordinator"),
+            "responsibilities": .array([.string("Published [guides]")]),
+        ])
+        let resume = try JSONValue.parse(preset.data(from: vault))
+        #expect(resume.object?["experience_markdown"] != nil)
+        source.records[0].fields["responsibilities"] = .array([.string("Changed item")])
+        #expect(throws: DataIssue.self) {
+            try preset.data(from: Vault(profiles: [source]), as: .structured)
+        }
+    }
+
     @Test func presetsAreVaultScopedAndRequireExplicitReplacement() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ExportPresetStore(vaultURL: root.appending(path: "vault.json"))
         let otherStore = ExportPresetStore(vaultURL: root.appending(path: "other.json"))
-        let preset = try ExportPreset(name: "example", profile: profile(), selection: selection, format: .structured)
+        let preset = try ExportPreset(name: "Example", profile: profile(), selection: selection, format: .structured)
         try store.save(preset)
+        #expect(preset.name == "example")
         #expect(try store.names() == ["example"])
         #expect(try otherStore.names().isEmpty)
         #expect(try store.names(for: "other").isEmpty)
@@ -64,7 +89,7 @@ struct ExportPresetTests {
         try store.save(preset, replace: true)
         let otherProfile = try ExportPreset(name: "example", profile: profile("other"), selection: selection, format: .structured)
         #expect(throws: DataIssue.self) { try store.save(otherProfile, replace: true) }
-        #expect(try store.load("example").profileID == "example")
+        #expect(try store.load("EXAMPLE").profileID == "example")
         #expect(throws: DataIssue.self) { try store.load("../example") }
     }
 }

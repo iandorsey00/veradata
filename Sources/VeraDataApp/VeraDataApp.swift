@@ -249,12 +249,12 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url))
     }
 
-    func saveSelection(_ data: Data, format: ExportFormat) {
+    func saveSelection(_ data: Data, suggestedFilename: String) {
         let panel = NSSavePanel()
         panel.title = VeraText.text("Export Data")
         panel.prompt = VeraText.text("Export")
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = format.filename
+        panel.nameFieldStringValue = suggestedFilename
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try writeExport(data, to: url)

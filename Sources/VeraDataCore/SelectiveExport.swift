@@ -35,7 +35,7 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
     }
 
     private static let resumeFields: [RecordKind: Set<String>] = [
-        .contact: ["name", "givenName", "familyName", "email", "phone", "summary", "headline", "website", "portfolio", "linkedin"],
+        .contact: ["name", "givenName", "familyName", "email", "phone", "summary", "headline", "website", "portfolio", "linkedin", "github", "GitHub"],
         .employment: ["employer", "title", "startDate", "endDate", "location", "responsibilities", "achievements"],
         .education: ["institution", "qualification", "fieldOfStudy", "startDate", "endDate", "location"],
     ]
@@ -47,12 +47,48 @@ public enum ExportFieldSelection: Equatable, Sendable {
 }
 
 public enum ResumeSection: String, CaseIterable, Identifiable, Sendable {
-    case skills, projects
+    case skills, projects, languages, certifications
 
     public var id: String { rawValue }
     public var title: String {
-        VeraText.text(self == .skills ? "Skills" : "Selected Projects")
+        switch self {
+        case .skills: return VeraText.text("Skills")
+        case .projects: return VeraText.text("Selected Projects")
+        case .languages: return VeraText.text("Languages")
+        case .certifications: return VeraText.text("Certifications")
+        }
     }
+
+    private var recommendedKeys: Set<String> {
+        switch self {
+        case .skills: return ["skills", "technical skills", "office tools", "support and automation", "systems support",
+                              "programming and web", "business and creative tools", "ai-assisted tools"]
+        case .projects: return ["title", "type", "description", "details", "source", "live application", "website", "repository", "demo"]
+        case .languages: return ["languages", "language", "proficiency"]
+        case .certifications: return ["credential", "certification", "issuer", "year"]
+        }
+    }
+
+    static func recommended(for record: Record) -> ResumeSection? {
+        guard record.kind == .custom else { return nil }
+        let keys = Set(record.fields.keys.map { $0.lowercased() })
+        let label = record.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if keys.contains("credential") || keys.contains("certification") { return .certifications }
+        if keys.contains("languages") || keys.contains("language") { return .languages }
+        if record.fields.contains(where: {
+            $0.key.lowercased() == "type" && $0.value.string?.lowercased().hasSuffix(" project") == true
+        }) { return .projects }
+        if keys.contains("skills") || ["skills", "core skills", "relevant skills", "技能", "核心技能", "相关技能"].contains(label) {
+            return .skills
+        }
+        return nil
+    }
+
+    fileprivate func recommends(_ key: String) -> Bool { recommendedKeys.contains(key.lowercased()) }
+}
+
+public enum ResumeSelectionScope: Sendable {
+    case standard, recommended, all
 }
 
 public struct ExportRecordSelection: Equatable, Identifiable, Sendable {
@@ -75,14 +111,26 @@ public enum SelectiveExport {
     }
 
     public static func standardResumeSelection(in profile: Profile, contactID: Record.ID?) -> [ExportRecordSelection] {
+        resumeSelection(in: profile, contactID: contactID, scope: .standard)
+    }
+
+    public static func resumeSelection(
+        in profile: Profile, contactID: Record.ID?, scope: ResumeSelectionScope
+    ) -> [ExportRecordSelection] {
         profile.records.compactMap { record in
+            var section: ResumeSection?
             switch record.kind {
             case .employment, .education: break
             case .contact where record.id == contactID: break
+            case .custom where scope != .standard:
+                section = ResumeSection.recommended(for: record)
+                if scope == .recommended, section == nil { return nil }
             default: return nil
             }
-            let fields = allFields(in: record, format: .veraFlowResume)
-            return fields.isEmpty ? nil : ExportRecordSelection(id: record.id, fields: fields)
+            let fields = allFields(in: record, format: .veraFlowResume).filter { key, _ in
+                scope != .recommended || section?.recommends(key) != false
+            }
+            return fields.isEmpty ? nil : ExportRecordSelection(id: record.id, fields: fields, resumeSection: section)
         }
     }
 
@@ -150,6 +198,10 @@ private struct ProjectedRecord {
         guard let value = fields[key]?.string, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    func key(named name: String) -> String? {
+        fields.keys.sorted().first { $0.lowercased() == name }
+    }
 }
 
 private enum ResumeProjection {
@@ -163,15 +215,12 @@ private enum ResumeProjection {
             for key in ["email", "phone", "summary", "headline"] {
                 if let value = contact.text(key) { result[key] = .string(inline(value)) }
             }
-            let links = try [("website", "Website"), ("portfolio", "Portfolio"), ("linkedin", "LinkedIn")].compactMap { key, label -> String? in
-                guard let text = contact.text(key) else { return nil }
-                guard !text.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" || $0 == "\\" }),
-                      let url = URLComponents(string: text),
-                      ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-                      url.host?.isEmpty == false else {
+            let links = try ["website", "portfolio", "linkedin", "github"].compactMap { key -> String? in
+                guard let field = contact.key(named: key), let text = contact.text(field) else { return nil }
+                guard let link = visibleLink(text) else {
                     throw DataIssue("Résumé links need a complete HTTP or HTTPS address.")
                 }
-                return "[\(label)](<\(text)>)"
+                return link
             }
             if !links.isEmpty { result["links_markdown"] = .string(links.joined(separator: " · ")) }
         }
@@ -183,10 +232,15 @@ private enum ResumeProjection {
         guard custom.allSatisfy({ $0.resumeSection != nil }) else {
             throw DataIssue("Choose a résumé section for each selected custom record.")
         }
-        for (section, key) in [(ResumeSection.skills, "skills_markdown"), (.projects, "projects_markdown")] {
-            let blocks = custom.filter { $0.resumeSection == section }.compactMap { customBlock($0, section: section) }
-            if !blocks.isEmpty { result[key] = .string(blocks.joined(separator: "\n\n")) }
+        let skills = sectionBody(.skills, records: custom)
+        // Existing VeraFlow forms can render these subsections through their Skills field.
+        let extraSkills = [ResumeSection.languages, .certifications].compactMap { section in
+            sectionBody(section, records: custom).map { "### \(section.title)\n\n\($0)" }
         }
+        if let body = nonempty(([skills].compactMap { $0 } + extraSkills).joined(separator: "\n\n")) {
+            result["skills_markdown"] = .string(body)
+        }
+        if let body = sectionBody(.projects, records: custom) { result["projects_markdown"] = .string(body) }
         guard !result.isEmpty else { throw DataIssue("Select at least one nonempty résumé field.") }
         guard !result.values.contains(where: { $0.string?.contains("\0") == true }) else {
             throw DataIssue("Remove null characters from your résumé fields before exporting.")
@@ -194,15 +248,54 @@ private enum ResumeProjection {
         return .object(result)
     }
 
+    static func sectionBody(_ section: ResumeSection, records: [ProjectedRecord]) -> String? {
+        nonempty(records.filter { $0.resumeSection == section }
+            .compactMap { customBlock($0, section: section) }.joined(separator: "\n\n"))
+    }
+
     static func customBlock(_ record: ProjectedRecord, section: ResumeSection) -> String? {
-        let heading = section == .projects ? record.text("title").map { "### " + inline($0) } : nil
-        // Field IDs set the presentation. A record's display name never enters the export.
-        let bullets = record.fields.keys.sorted().filter { heading == nil || $0 != "title" }.flatMap { key -> [String] in
+        var lines: [String] = []
+        var presented: Set<String> = []
+        if section == .projects {
+            if let key = record.key(named: "title"), let title = record.text(key) {
+                lines.append("### " + inline(title))
+                presented.insert(key)
+            }
+            if let key = record.key(named: "type"), let type = record.text(key) {
+                lines.append(inline(type))
+                presented.insert(key)
+            }
+            let links = ["source", "live application", "website", "repository", "demo"].compactMap { name -> String? in
+                guard let key = record.key(named: name), let text = record.text(key),
+                      let rendered = visibleLink(text) else { return nil }
+                presented.insert(key)
+                return rendered
+            }
+            if !links.isEmpty { lines.append(links.joined(separator: " · ")) }
+        }
+        let credential = record.key(named: "credential") ?? record.key(named: "certification")
+        if section == .certifications, let key = credential, record.text(key) != nil {
+            let details = [key, record.key(named: "issuer"), record.key(named: "year")].compactMap { $0 }
+            let values = details.compactMap(record.text).map(inline)
+            lines.append("- " + values.joined(separator: " · "))
+            presented.formUnion(details)
+        }
+        // A record's display name never enters the export.
+        let bullets = record.fields.keys.sorted().filter { !presented.contains($0) }.flatMap { key -> [String] in
             guard let value = record.fields[key] else { return [] }
             let texts = value.string.map { [$0] } ?? (value.array ?? []).compactMap(\.string)
             return texts.compactMap { nonempty(inline($0)) }.map { "- " + $0 }
         }
-        return nonempty([heading, nonempty(bullets.joined(separator: "\n"))].compactMap { $0 }.joined(separator: "\n\n"))
+        if !bullets.isEmpty { lines.append(bullets.joined(separator: "\n")) }
+        return nonempty(lines.joined(separator: "\n\n"))
+    }
+
+    static func visibleLink(_ text: String) -> String? {
+        guard !text.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" || $0 == "\\" }),
+              let url = URLComponents(string: text),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host?.isEmpty == false else { return nil }
+        return "<\(text)>"
     }
 
     static func block(_ record: ProjectedRecord) -> String? {
