@@ -356,3 +356,8 @@
 "That export preset name is already in use." = "该导出预设名称已被使用。";
 "Could not write the export preset." = "无法写入导出预设。";
 "Could not save the export preset." = "无法保存导出预设。";
+"Select résumé fields from contact, work, and education records. Add custom skills or projects individually." = "从联系人、工作和教育记录中选择简历字段。请单独添加自定义技能或项目。";
+"Select All Standard Fields" = "选择所有标准字段";
+"Select All Fields" = "选择所有字段";
+"Exclude Record" = "不导出此记录";
+"Select fields from one contact to add it to the résumé." = "请选择一位联系人的字段，将其加入简历。";

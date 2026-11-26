@@ -20,6 +20,24 @@ struct SelectiveExportTests {
 
     private var profile: Profile { Profile(id: "private-profile", name: "Private profile", records: [contact, job, education]) }
 
+    @Test func standardResumeSelectionUsesEligibleFieldsAndOnlyTheChosenContact() throws {
+        let other = Record(id: "other", kind: .contact, label: "Other", fields: ["name": .string("Other contact")])
+        let custom = Record(id: "custom", kind: .custom, label: "Notes", fields: ["note": .string("Private note")])
+        let source = Profile(id: profile.id, name: profile.name, records: [other, contact, job, custom, education])
+        let selection = SelectiveExport.standardResumeSelection(in: source, contactID: contact.id)
+        #expect(selection.map(\.id) == [contact.id, job.id, education.id])
+        #expect(selection[1].fields["responsibilities"] == .whole)
+        #expect(selection[1].fields["supervisor"] == nil)
+        #expect(selection[1].fields["metadata"] == nil)
+        let withoutContact = SelectiveExport.standardResumeSelection(in: source, contactID: nil)
+        #expect(withoutContact.map(\.id) == [job.id, education.id])
+        let output = try #require(JSONValue.parse(
+            SelectiveExport.data(from: source, selection: selection, format: .veraFlowResume)
+        ).object)
+        #expect(output["name"] == .string("Morgan Example"))
+        #expect(output["experience_markdown"]?.string?.contains("Kept reports") == true)
+    }
+
     @Test func structuredSelectionKeepsTypesAndExplicitOrder() throws {
         let data = try SelectiveExport.data(from: profile, selection: [
             .init(id: education.id, fields: ["institution": .whole]),

@@ -94,7 +94,15 @@ struct SelectiveExportView: View {
                         ForEach(formats) { format in Text(format.title).tag(format) }
                     }.fixedSize()
                 }
-                Text(instruction).foregroundStyle(.secondary)
+                HStack {
+                    Text(instruction).foregroundStyle(.secondary)
+                    Spacer()
+                    if format == .veraFlowResume {
+                        Button("Select All Standard Fields", action: selectStandardResumeFields)
+                            .disabled(!available.contains { $0.kind == .contact || $0.kind == .employment || $0.kind == .education })
+                            .fixedSize()
+                    }
+                }
                 HStack(spacing: 0) {
                     recordList.frame(width: 242)
                     Divider()
@@ -171,9 +179,23 @@ struct SelectiveExportView: View {
     private var instruction: String {
         switch format {
         case .structured: return VeraText.text("Choose fields and list items. Selected records appear in export order.")
-        case .veraFlowResume: return VeraText.text("Compatible with VeraFlow. Choose selected contact, work, and education fields. Assign selected custom records to Skills or Selected Projects.")
+        case .veraFlowResume: return VeraText.text("Select résumé fields from contact, work, and education records. Add custom skills or projects individually.")
         case .flatRecord: return VeraText.text("Choose individual values from this record.")
         }
+    }
+
+    private func selectStandardResumeFields() {
+        let contacts = available.filter { $0.kind == .contact }
+        let selectedContact = selection.first { item in contacts.contains { $0.id == item.id } }?.id
+        let contactID = selectedContact ?? (contacts.count == 1 ? contacts.first?.id : nil)
+        let standard = SelectiveExport.standardResumeSelection(in: request.profile, contactID: contactID)
+        let byID = Dictionary(uniqueKeysWithValues: standard.map { ($0.id, $0) })
+        let customIDs = Set(available.filter { $0.kind == .custom }.map(\.id))
+        let previouslySelectedIDs = Set(selection.map(\.id))
+        chosen[format] = selection.compactMap { item in
+            byID[item.id] ?? (customIDs.contains(item.id) ? item : nil)
+        } + standard.filter { !previouslySelectedIDs.contains($0.id) }
+        problem = contacts.count > 1 && contactID == nil ? VeraText.text("Select fields from one contact to add it to the résumé.") : nil
     }
 
     private var recordList: some View {
@@ -228,7 +250,17 @@ struct SelectiveExportView: View {
     private func fieldList(for record: Record) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text(record.label).font(.headline)
+                HStack {
+                    Text(record.label).font(.headline)
+                    Spacer()
+                    Button("Select All Fields") {
+                        setFields(SelectiveExport.allFields(in: record, format: format), for: record)
+                    }
+                    Button("Exclude Record") {
+                        setFields([:], for: record)
+                    }
+                    .disabled(!selection.contains { $0.id == record.id })
+                }
                 if format == .veraFlowResume, record.kind == .custom,
                    let item = selection.first(where: { $0.id == record.id }) {
                     Picker("Résumé section", selection: Binding(
@@ -306,12 +338,18 @@ struct SelectiveExportView: View {
     }
 
     private func update(_ key: String, in record: Record, to choice: ExportFieldSelection?) {
+        var fields = selection.first { $0.id == record.id }?.fields ?? [:]
+        fields[key] = choice
+        setFields(fields, for: record)
+    }
+
+    private func setFields(_ fields: [String: ExportFieldSelection], for record: Record) {
         var updated = selection
         if let index = updated.firstIndex(where: { $0.id == record.id }) {
-            updated[index].fields[key] = choice
-            if updated[index].fields.isEmpty { updated.remove(at: index) }
-        } else if let choice {
-            updated.append(ExportRecordSelection(id: record.id, fields: [key: choice]))
+            if fields.isEmpty { updated.remove(at: index) }
+            else { updated[index].fields = fields }
+        } else if !fields.isEmpty {
+            updated.append(ExportRecordSelection(id: record.id, fields: fields))
         }
         chosen[format] = updated
         problem = nil

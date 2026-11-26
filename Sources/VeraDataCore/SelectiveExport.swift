@@ -68,6 +68,24 @@ public struct ExportRecordSelection: Equatable, Identifiable, Sendable {
 }
 
 public enum SelectiveExport {
+    public static func allFields(in record: Record, format: ExportFormat) -> [String: ExportFieldSelection] {
+        Dictionary(uniqueKeysWithValues: record.fields.keys
+            .filter { format.includes($0, in: record) }
+            .map { ($0, .whole) })
+    }
+
+    public static func standardResumeSelection(in profile: Profile, contactID: Record.ID?) -> [ExportRecordSelection] {
+        profile.records.compactMap { record in
+            switch record.kind {
+            case .employment, .education: break
+            case .contact where record.id == contactID: break
+            default: return nil
+            }
+            let fields = allFields(in: record, format: .veraFlowResume)
+            return fields.isEmpty ? nil : ExportRecordSelection(id: record.id, fields: fields)
+        }
+    }
+
     public static func data(from profile: Profile, selection: [ExportRecordSelection], format: ExportFormat) throws -> Data {
         let records = try project(profile: profile, selection: selection, format: format)
         let value: JSONValue
