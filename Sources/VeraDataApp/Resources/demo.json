@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "settings": {"searchShortcut": "space"},
+  "profiles": [
+    {
+      "id": "demo",
+      "name": "Fictional demo",
+      "records": [
+        {
+          "id": "morgan-reed", "kind": "contact", "label": "Morgan Reed",
+          "aliases": {";ph": "phone", ";email": "email"},
+          "fields": {
+            "name": "Morgan Reed", "givenName": "Morgan", "familyName": "Reed",
+            "email": "morgan.reed@example.com", "phone": "+1 (202) 555-0142",
+            "Reference code": "000184"
+          }
+        },
+        {
+          "id": "cedar-current", "kind": "address", "label": "Cedar Loop",
+          "aliases": {";street": "line1"},
+          "fields": {
+            "use": "Residential", "line1": "120 Cedar Loop", "line2": "Unit 4",
+            "city": "Port Mason", "region": "WA", "postalCode": "00042",
+            "country": "United States", "startDate": "2024-03",
+            "latitude": "45.000000", "longitude": "-123.000000"
+          }
+        },
+        {
+          "id": "orchard-previous", "kind": "address", "label": "Orchard Lane",
+          "fields": {
+            "use": "Residential", "line1": "72 Orchard Lane", "city": "North Elwick",
+            "region": "OR", "postalCode": "00017", "country": "United States",
+            "startDate": "2020", "endDate": "2024-02"
+          }
+        },
+        {
+          "id": "juniper-lead", "kind": "employment", "label": "Juniper Signal Works",
+          "fields": {
+            "employer": "Juniper Signal Works", "legalName": "Juniper Signal Works Cooperative",
+            "title": "Operations Lead", "startDate": "2024-03", "location": "Port Mason, WA",
+            "employmentType": "Full-time",
+            "responsibilities": ["Maintain the equipment intake register.", "Coordinate weekly handoffs with field teams.", "Review training records for new technicians."],
+            "verificationContact": "people@juniper.example"
+          }
+        },
+        {
+          "id": "juniper-coordinator", "kind": "employment", "label": "Juniper Signal Works",
+          "fields": {
+            "employer": "Juniper Signal Works", "title": "Operations Coordinator",
+            "startDate": "2022-07", "endDate": "2024-02", "location": "Port Mason, WA",
+            "responsibilities": ["Tracked warranty returns for regional partners.", "Reconciled intake logs each Friday."]
+          }
+        },
+        {
+          "id": "firstrand", "kind": "employment", "label": "Firstrand Survey Studio",
+          "fields": {
+            "employer": "Firstrand Survey Studio", "title": "Project Assistant",
+            "startDate": "2020-01-13", "endDate": "2022-06", "location": "North Elwick, OR",
+            "responsibilities": ["Prepared survey packets and archived completion reports."], "supervisor": null
+          }
+        },
+        {
+          "id": "glasswater", "kind": "employment", "label": "Glasswater Library",
+          "fields": {
+            "employer": "Glasswater Library", "title": "Circulation Assistant",
+            "startDate": "2018", "endDate": "2019-12", "location": "North Elwick, OR"
+          }
+        },
+        {
+          "id": "blueleaf", "kind": "employment", "label": "Blueleaf Community Press",
+          "fields": {"employer": "Blueleaf Community Press", "title": "Editorial Intern", "startDate": "2017-06", "endDate": "2017-09"}
+        },
+        {
+          "id": "rainwell", "kind": "education", "label": "Rainwell College",
+          "fields": {
+            "institution": "Rainwell College", "qualification": "Associate of Applied Science",
+            "fieldOfStudy": "Information Management", "startDate": "2015", "endDate": "2017"
+          }
+        }
+      ]
+    }
+  ]
+}

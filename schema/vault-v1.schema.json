@@ -1,0 +1,449 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VeraData vault version 1",
+  "type": "object",
+  "required": [
+    "version",
+    "settings",
+    "profiles"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "settings": {
+      "$ref": "#/$defs/settings"
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "settings": {
+      "type": "object",
+      "required": [
+        "searchShortcut"
+      ],
+      "properties": {
+        "searchShortcut": {
+          "enum": [
+            "space",
+            "j",
+            "k",
+            "off"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "records"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "record": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "fields"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "contact",
+            "address",
+            "employment",
+            "education",
+            "custom"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "aliases": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^;[^\\s;]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "contact"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "properties": {
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "givenName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "familyName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "phone": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "address"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "properties": {
+                  "line1": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "line2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "region": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postalCode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "country": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "formatted": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "use": {
+                    "enum": [
+                      null,
+                      "",
+                      "Residential",
+                      "Mailing",
+                      "Billing",
+                      "Shipping",
+                      "Other"
+                    ]
+                  },
+                  "startDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  },
+                  "endDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "employment"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "properties": {
+                  "employer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "legalName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "location": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "employerAddress": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "employmentType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "supervisor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reasonForLeaving": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "verificationContact": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "startDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  },
+                  "endDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  },
+                  "responsibilities": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "achievements": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "education"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "properties": {
+                  "institution": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "qualification": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "fieldOfStudy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "location": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "startDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  },
+                  "endDate": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "const": ""
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

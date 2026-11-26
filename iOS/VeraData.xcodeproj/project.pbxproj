@@ -1,0 +1,56 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A10000000000000000000001 = {
+   isa = PBXProject;
+   attributes = { LastUpgradeCheck = 1600; };
+   buildConfigurationList = A10000000000000000000002;
+   compatibilityVersion = "Xcode 14.0";
+   developmentRegion = en;
+   knownRegions = (en, "zh-Hans", Base);
+   mainGroup = A10000000000000000000003;
+   packageReferences = (A1000000000000000000000C);
+   productRefGroup = A10000000000000000000004;
+   projectDirPath = "";
+   projectRoot = "";
+   targets = (A10000000000000000000005);
+  };
+  A10000000000000000000002 = { isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000E, A1000000000000000000000F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A10000000000000000000003 = { isa = PBXGroup; children = (A10000000000000000000007, A10000000000000000000016, A10000000000000000000018, A10000000000000000000019, A10000000000000000000004); sourceTree = "<group>"; };
+  A10000000000000000000004 = { isa = PBXGroup; children = (A10000000000000000000006); name = Products; sourceTree = "<group>"; };
+  A10000000000000000000005 = {
+   isa = PBXNativeTarget;
+   buildConfigurationList = A10000000000000000000010;
+   buildPhases = (A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B);
+   buildRules = ();
+   dependencies = ();
+   name = VeraDataPhone;
+   packageProductDependencies = (A1000000000000000000000D);
+   productName = VeraData;
+   productReference = A10000000000000000000006;
+   productType = "com.apple.product-type.application";
+  };
+  A10000000000000000000006 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = VeraData.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  A10000000000000000000007 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeraDataPhone.swift; sourceTree = "<group>"; };
+  A10000000000000000000008 = { isa = PBXBuildFile; fileRef = A10000000000000000000007; };
+  A10000000000000000000009 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000008); runOnlyForDeploymentPostprocessing = 0; };
+  A1000000000000000000000A = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000013); runOnlyForDeploymentPostprocessing = 0; };
+  A1000000000000000000000B = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000017); runOnlyForDeploymentPostprocessing = 0; };
+  A1000000000000000000000C = { isa = XCLocalSwiftPackageReference; relativePath = ".."; };
+  A1000000000000000000000D = { isa = XCSwiftPackageProductDependency; package = A1000000000000000000000C; productName = VeraDataCore; };
+  A1000000000000000000000E = { isa = XCBuildConfiguration; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+  A1000000000000000000000F = { isa = XCBuildConfiguration; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+  A10000000000000000000010 = { isa = XCConfigurationList; buildConfigurations = (A10000000000000000000011, A10000000000000000000012); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A10000000000000000000011 = { isa = XCBuildConfiguration; baseConfigurationReference = A10000000000000000000019; buildSettings = {}; name = Debug; };
+  A10000000000000000000012 = { isa = XCBuildConfiguration; baseConfigurationReference = A10000000000000000000019; buildSettings = {}; name = Release; };
+  A10000000000000000000013 = { isa = PBXBuildFile; productRef = A1000000000000000000000D; };
+  A10000000000000000000016 = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+  A10000000000000000000017 = { isa = PBXBuildFile; fileRef = A10000000000000000000016; };
+  A10000000000000000000018 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+  A10000000000000000000019 = { isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = "<group>"; };
+ };
+ rootObject = A10000000000000000000001;
+}

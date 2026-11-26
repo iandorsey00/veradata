@@ -1,0 +1,273 @@
+import AppKit
+import SwiftUI
+import VeraDataCore
+
+struct ExportRequest: Identifiable {
+    let id = UUID()
+    let profile: Profile
+    let recordID: Record.ID?
+}
+
+struct SelectiveExportView: View {
+    let request: ExportRequest
+    let save: (Data, ExportFormat) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @ViewState private var format: ExportFormat
+    @ViewState private var chosen: [ExportFormat: [ExportRecordSelection]] = [:]
+    @ViewState private var recordID: Record.ID?
+    @ViewState private var preview: Data?
+    @ViewState private var problem: String?
+
+    init(request: ExportRequest, save: @escaping (Data, ExportFormat) -> Void) {
+        self.request = request
+        self.save = save
+        let record = request.profile.records.first { $0.id == request.recordID }
+        _format = State(initialValue: record?.fields.values.contains(where: \.isScalar) == true ? .flatRecord : .structured)
+        _recordID = State(initialValue: request.recordID ?? request.profile.records.first(where: { !$0.fields.isEmpty })?.id)
+    }
+
+    private var formats: [ExportFormat] {
+        request.recordID == nil ? [.structured, .veraFlowResume] : [.flatRecord, .structured, .veraFlowResume]
+    }
+
+    private var selection: [ExportRecordSelection] { chosen[format, default: []] }
+
+    private var available: [Record] {
+        request.profile.records.filter { record in
+            (format != .flatRecord || record.id == request.recordID)
+                && record.orderedKeys.contains { format.includes($0, in: record) }
+        }
+    }
+
+    private var focused: Record? { available.first { $0.id == recordID } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(preview == nil ? VeraText.text("Export Data") : VeraText.text("Review Export"))
+                .font(.title2.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+            if let preview {
+                Text("This is the complete JSON file. Its contents are readable by anyone who has the file.")
+                    .foregroundStyle(.secondary)
+                ExportJSONPreview(data: preview)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                HStack {
+                    Button("Back") { self.preview = nil }
+                    Spacer()
+                    Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Save JSON…") {
+                        let outputFormat = format
+                        dismiss()
+                        Task { @MainActor in save(preview, outputFormat) }
+                    }.keyboardShortcut(.defaultAction)
+                }
+            } else {
+                HStack {
+                    Text(request.profile.name).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    Picker("Format", selection: $format) {
+                        ForEach(formats) { format in Text(format.title).tag(format) }
+                    }.fixedSize()
+                }
+                Text(instruction).foregroundStyle(.secondary)
+                HStack(spacing: 0) {
+                    recordList.frame(width: 242)
+                    Divider()
+                    if let focused { fieldList(for: focused).id(focused.id) }
+                    else {
+                        Text("No fields are available for this export format.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding()
+                    }
+                }
+                if let problem { Text(problem).foregroundStyle(.red) }
+                HStack {
+                    Text(selection.count == 1 ? VeraText.text("1 record selected") : VeraText.format("%lld records selected", selection.count)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Review…", action: review)
+                        .disabled(selection.isEmpty)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 780, height: 575)
+        .onChange(of: format) { _, _ in
+            problem = nil
+            if focused == nil { recordID = available.first?.id }
+        }
+    }
+
+    private var instruction: String {
+        switch format {
+        case .structured: return VeraText.text("Choose fields and list items. Selected records appear in export order.")
+        case .veraFlowResume: return VeraText.text("Choose fields from one contact and any employment or education records. Selected records appear in export order.")
+        case .flatRecord: return VeraText.text("Choose individual values from this record.")
+        }
+    }
+
+    private var recordList: some View {
+        VStack(spacing: 6) {
+            List(selection: $recordID) {
+                if !selection.isEmpty {
+                    Section("Selected · export order") {
+                        ForEach(selection) { item in
+                            if let record = available.first(where: { $0.id == item.id }) { recordRow(record) }
+                        }
+                    }
+                }
+                let remaining = available.filter { record in !selection.contains(where: { $0.id == record.id }) }
+                if !remaining.isEmpty {
+                    Section("Available Records") {
+                        ForEach(remaining) { record in recordRow(record) }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            if format != .flatRecord {
+                HStack {
+                    moveButton(-1, title: VeraText.text("Move record earlier"), icon: "arrow.up")
+                    moveButton(1, title: VeraText.text("Move record later"), icon: "arrow.down")
+                    Spacer()
+                }.padding(.horizontal, 8).padding(.bottom, 4)
+            }
+        }
+    }
+
+    private func recordRow(_ record: Record) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(record.label).lineLimit(1)
+            if !record.subtitle.isEmpty {
+                Text(record.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .tag(record.id)
+    }
+
+    private func moveButton(_ offset: Int, title: String, icon: String) -> some View {
+        let position = selection.firstIndex { $0.id == recordID }
+        let canMove = position.map { selection.indices.contains($0 + offset) } ?? false
+        return Button {
+            guard let position, canMove else { return }
+            let item = chosen[format, default: []].remove(at: position)
+            chosen[format, default: []].insert(item, at: position + offset)
+        } label: { Label(title, systemImage: icon).labelStyle(.iconOnly) }
+        .disabled(!canMove).help(title)
+    }
+
+    private func fieldList(for record: Record) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(record.label).font(.headline)
+                ForEach(record.orderedKeys.filter { format.includes($0, in: record) }, id: \.self) { key in
+                    if let value = record.fields[key] {
+                        fieldRow(key, value: value, in: record)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
+    }
+
+    @ViewBuilder
+    private func fieldRow(_ key: String, value: JSONValue, in record: Record) -> some View {
+        let label = record.fieldDefinition(key).localizedLabel
+        let current = selection.first { $0.id == record.id }?.fields[key]
+        if let items = value.array, !items.isEmpty {
+            let indices = selectedIndices(current, count: items.count)
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 9) {
+                    Toggle("Select all items", isOn: Binding(get: { indices.count == items.count }, set: {
+                        update(key, in: record, to: $0 ? .whole : nil)
+                    }))
+                    ForEach(items.indices, id: \.self) { index in
+                        Toggle(isOn: Binding(get: { indices.contains(index) }, set: { checked in
+                            var updated = indices
+                            if checked { updated.insert(index) } else { updated.remove(index) }
+                            let choice: ExportFieldSelection? = updated.isEmpty ? nil : .items(updated)
+                            update(key, in: record, to: choice)
+                        })) {
+                            Text(valueText(items[index])).lineLimit(4)
+                        }
+                    }
+                }.padding(.top, 8).padding(.leading, 8)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                    Text(VeraText.format("%lld of %lld items selected", indices.count, items.count))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            Toggle(isOn: Binding(get: { current != nil }, set: {
+                update(key, in: record, to: $0 ? .whole : nil)
+            })) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                    Text(valueText(value)).lineLimit(3).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func selectedIndices(_ selected: ExportFieldSelection?, count: Int) -> Set<Int> {
+        switch selected {
+        case .whole: return Set(0..<count)
+        case .items(let indices): return indices
+        case nil: return []
+        }
+    }
+
+    private func update(_ key: String, in record: Record, to choice: ExportFieldSelection?) {
+        var updated = selection
+        if let index = updated.firstIndex(where: { $0.id == record.id }) {
+            updated[index].fields[key] = choice
+            if updated[index].fields.isEmpty { updated.remove(at: index) }
+        } else if let choice {
+            updated.append(ExportRecordSelection(id: record.id, fields: [key: choice]))
+        }
+        chosen[format] = updated
+        problem = nil
+    }
+
+    private func valueText(_ value: JSONValue) -> String {
+        if value == .null { return VeraText.text("Unknown") }
+        if let text = value.scalarText { return text.isEmpty ? VeraText.text("Empty text") : text }
+        if let object = value.object { return VeraText.format("Object with %lld fields", object.count) }
+        return VeraText.format("List with %lld items", value.array?.count ?? 0)
+    }
+
+    private func review() {
+        do {
+            preview = try SelectiveExport.data(from: request.profile, selection: selection, format: format)
+            problem = nil
+        } catch { problem = error.localizedDescription }
+    }
+}
+
+
+private struct ExportJSONPreview: NSViewRepresentable {
+    let data: Data
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        if let text = scroll.documentView as? NSTextView {
+            text.isEditable = false
+            text.isSelectable = true
+            text.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            text.textContainerInset = NSSize(width: 10, height: 10)
+            text.setAccessibilityLabel(VeraText.text("Exported JSON"))
+        }
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let text = scroll.documentView as? NSTextView else { return }
+        let json = String(decoding: data, as: UTF8.self)
+        if text.string != json { text.string = json }
+    }
+}

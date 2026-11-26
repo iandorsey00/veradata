@@ -1,0 +1,39 @@
+--- veraflow 2
+{
+  "title": "VeraData résumé",
+  "fields": {
+    "name": {"type": "text", "optional": true},
+    "email": {"type": "text", "optional": true},
+    "phone": {"type": "text", "optional": true},
+    "summary": {"type": "textarea", "optional": true},
+    "experience_markdown": {"type": "textarea", "label": "Experience", "optional": true},
+    "education_markdown": {"type": "textarea", "label": "Education", "optional": true}
+  }
+}
+---
+{{#when name is not blank}}
+# {{name}}
+
+{{/when}}
+{{#when email is not blank}}
+{{email}}
+{{/when}}
+{{#when phone is not blank}}
+{{phone}}
+{{/when}}
+{{#when summary is not blank}}
+
+{{summary}}
+{{/when}}
+{{#when experience_markdown is not blank}}
+
+## Experience
+
+{{experience_markdown}}
+{{/when}}
+{{#when education_markdown is not blank}}
+
+## Education
+
+{{education_markdown}}
+{{/when}}
