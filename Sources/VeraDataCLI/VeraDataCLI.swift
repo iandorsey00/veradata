@@ -51,7 +51,8 @@ struct VeraDataCLI {
           history prune --keep COUNT [--apply]
           history retention [--keep COUNT --apply]
 
-        Data commands accept --vault PATH. For an encrypted file, the password is prompted on the terminal.
+        Data commands accept --vault PATH, including .veradatavault and .veradata files.
+        For a password-protected vault, the terminal prompts for its password.
         Profile-scoped commands accept --profile ID or NAME.
         With no --vault, commands use the desktop app's vault. With no --profile, use the first profile.
         FILE may be - for stdin. JSON and selected values go to stdout. Diagnostics go to stderr.
@@ -90,10 +91,14 @@ struct VeraDataCLI {
             return
         }
         let path = args.one("--vault").map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL
-        let encrypted: EncryptedVault? = if command != "current", EncryptedVault.isEncryptedURL(path) {
-            try EncryptedVault.open(path, password: vaultPassword("Vault password: "))
-        } else { nil }
-        var cli = CLICommands(vaultURL: path, encrypted: encrypted)
+        let archive: VaultArchive?
+        if command != "current", VaultArchive.isArchiveURL(path) {
+            let password = try VaultArchive.isEncryptedURL(path) ? vaultPassword("Vault password: ") : nil
+            archive = try VaultArchive.open(path, password: password)
+        } else {
+            archive = nil
+        }
+        var cli = CLICommands(vaultURL: path, archive: archive)
         switch command {
         case "vault" where action == "encrypt":
             try args.validate(1...1)
@@ -102,7 +107,7 @@ struct VeraDataCLI {
             guard try vaultPassword("Confirm new vault password: ") == password else {
                 throw DataIssue("The vault passwords do not match.")
             }
-            _ = try EncryptedVault.create(at: target, password: password, copying: cli.store.stateStore)
+            _ = try VaultArchive.create(at: target, password: password, copying: cli.store.stateStore)
             try cli.emit(.object(["path": .string(target.path)]))
 
         case "profiles", "profile": try cli.profiles(command == "profiles" ? "list" : action, args)
@@ -154,9 +159,9 @@ struct CLICommands {
     var store: VaultFile
     let presetStore: ExportPresetStore
 
-    init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
-        store = VaultFile(url: vaultURL, encrypted: encrypted)
-        presetStore = ExportPresetStore(vaultURL: vaultURL, encrypted: encrypted)
+    init(vaultURL: URL, archive: VaultArchive? = nil) {
+        store = VaultFile(url: vaultURL, archive: archive)
+        presetStore = ExportPresetStore(vaultURL: vaultURL, archive: archive)
     }
 
     mutating func load() throws -> Vault {

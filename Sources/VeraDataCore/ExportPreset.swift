@@ -126,8 +126,12 @@ public struct ExportPreset: Codable, Sendable {
 public struct ExportPresetStore: Sendable {
     private let store: VaultStateStore
 
-    public init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
-        store = VaultStateStore(vaultURL: vaultURL, encrypted: encrypted)
+    public init(vaultURL: URL, archive: VaultArchive? = nil) {
+        store = VaultStateStore(vaultURL: vaultURL, archive: archive)
+    }
+
+    public init(vaultURL: URL, encrypted: EncryptedVault?) {
+        self.init(vaultURL: vaultURL, archive: encrypted)
     }
 
     public func load(_ name: String) throws -> ExportPreset {

@@ -1,5 +1,12 @@
 # VeraData changelog
 
+## 0.11.0 · 2026-11-26
+
+- Use **Save Vault As…** to create an unencrypted or password-protected working vault with records, evidence, presets, settings, and revision history.
+- Save a separate readable copy with **Back Up Records as JSON…**.
+- Open newer stable versions on GitHub from **Update App…** in the macOS sidebar or VeraData menu.
+- Move a built Mac app to Applications with `scripts/install-app.sh` and keep the previous build.
+
 ## 0.10.0 · 2026-11-26
 
 - Create, open, lock, and back up separate encrypted .veradata working files containing records, presets, and evidence.

@@ -5,6 +5,63 @@ import Testing
 struct EncryptedVaultTests {
     private let passphrase = "Fictional vault passphrase for tests"
 
+    @Test func completeCopiesPreserveCurrentAndHistoricalEvidenceAcrossFormats() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let localURL = folder.appendingPathComponent("vault.json")
+        var local = VaultFile(url: localURL)
+        _ = try local.load()
+        let region = EvidenceRegion(x: 0, y: 0, width: 1, height: 1)
+        var record = Record(id: "office", kind: .address, label: "Fictional office", fields: ["city": .string("Example City")])
+        var vault = Vault(profiles: [Profile(id: "demo", name: "Fictional", records: [record]), Profile(name: "Second")], shortcut: .k)
+        let historicalBytes = Data("Historical evidence fixture".utf8)
+        let historical = EvidenceFileStore.document(for: historicalBytes, name: "Previous.pdf", kind: .pdf)
+        record.evidence = [try EvidenceMark(document: historical, page: 0, region: region, record: record, keys: ["city"])]
+        vault.profiles[0].records = [record]
+        try local.save(vault, attachment: VaultAttachment(document: historical, bytes: historicalBytes))
+
+        let currentBytes = Data("Current evidence fixture".utf8)
+        let current = EvidenceFileStore.document(for: currentBytes, name: "Current.pdf", kind: .pdf)
+        record.evidence = [try EvidenceMark(document: current, page: 0, region: region, record: record, keys: ["city"])]
+        vault.profiles[0].records = [record]
+        try local.save(vault, attachment: VaultAttachment(document: current, bytes: currentBytes))
+        try local.stateStore.commit(summary: "Save fictional preset") { state in
+            state.presets["sample"] = Data("Fictional preset fixture".utf8)
+        }
+        try local.stateStore.prune(keeping: 4, configure: true)
+        let expectedState = try local.stateStore.snapshot()
+        let expectedHistory = try local.stateStore.history().map(\.id)
+
+        let plainURL = folder.appendingPathComponent("Copy.veradatavault")
+        let encryptedURL = folder.appendingPathComponent("Copy.veradata")
+        let decryptedURL = folder.appendingPathComponent("Decrypted.veradatavault")
+        let plain = try VaultArchive.create(at: plainURL, copying: local.stateStore)
+        let encrypted = try VaultArchive.create(at: encryptedURL, password: passphrase,
+                                                copying: VaultStateStore(vaultURL: plainURL, archive: plain))
+        _ = try VaultArchive.create(at: decryptedURL, copying: VaultStateStore(vaultURL: encryptedURL, archive: encrypted))
+        for url in [plainURL, encryptedURL, decryptedURL] {
+            let archive = try VaultArchive.open(url, password: VaultArchive.isEncryptedURL(url) ? passphrase : nil)
+            let source = VaultStateStore(vaultURL: url, archive: archive)
+            #expect(try source.snapshot() == expectedState)
+            #expect(try source.history().map(\.id) == expectedHistory)
+            #expect(try source.retention() == 4)
+            let evidence = EvidenceFileStore(vaultURL: url, archive: archive)
+            #expect(try evidence.read(current) == currentBytes)
+            #expect(try evidence.read(historical) == historicalBytes)
+            #expect(!FileManager.default.fileExists(atPath: url.path + ".evidence"))
+        }
+        #expect(try local.stateStore.snapshot() == expectedState)
+        #expect(throws: DataIssue.self) { try VaultArchive.create(at: plainURL, copying: local.stateStore) }
+        #expect(throws: DataIssue.self) { try VaultStateStore(vaultURL: plainURL).snapshot() }
+
+        let records = try Vault(data: vault.recordsBackupData())
+        record.evidence = []
+        vault.profiles[0].records = [record]
+        #expect(records == vault)
+    }
+
     @Test func migratesRecordsPresetsAndEvidenceAndKeepsBackupsEncrypted() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -314,11 +314,19 @@ public struct Vault: Equatable, Sendable {
     }
 
     public func data() throws -> Data {
+        try data(includeEvidence: true)
+    }
+
+    public func recordsBackupData() throws -> Data {
+        try data(includeEvidence: false)
+    }
+
+    private func data(includeEvidence: Bool) throws -> Data {
         _ = try validated()
         return try JSONValue.object([
             "version": .number(JSONNumber(String(Self.version))),
             "settings": .object(["searchShortcut": .string(shortcut.rawValue)]),
-            "profiles": try Self.encodeProfiles(profiles, includeEvidence: true),
+            "profiles": try Self.encodeProfiles(profiles, includeEvidence: includeEvidence),
         ]).data()
     }
 

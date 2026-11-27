@@ -92,11 +92,16 @@ public struct VaultStateStore: Sendable {
     public let vaultURL: URL
     var afterVaultWrite: (@Sendable () throws -> Void)?
 
-    public let encrypted: EncryptedVault?
+    public let archive: VaultArchive?
+    public var encrypted: EncryptedVault? { VaultArchive.isEncryptedURL(vaultURL) ? archive : nil }
 
-    public init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
+    public init(vaultURL: URL, archive: VaultArchive? = nil) {
         self.vaultURL = vaultURL
-        self.encrypted = encrypted?.url == vaultURL ? encrypted : nil
+        self.archive = archive?.url == vaultURL ? archive : nil
+    }
+
+    public init(vaultURL: URL, encrypted: EncryptedVault?) {
+        self.init(vaultURL: vaultURL, archive: encrypted)
     }
 
     private var folder: URL { vaultURL.deletingLastPathComponent() }
@@ -106,21 +111,43 @@ public struct VaultStateStore: Sendable {
     private var limitURL: URL { historyFolder.appendingPathComponent(".retention") }
 
     public func snapshot() throws -> VaultState {
-        if let encrypted { return try encrypted.contents().state }
+        if let archive { return try archive.contents().state }
         return try locked { try readState() }
+    }
+
+    func completeContents(initialVault: Vault) throws -> VaultArchive.Contents {
+        if let archive { return try archive.contents() }
+        return try locked {
+            var state = try readState()
+            if state.vaultData == nil { state.vaultData = try initialVault.data() }
+            let revisions = try revisionFiles().map { id in
+                let saved = try readRevision(id)
+                return VaultArchive.Revision(revision: saved.revision, state: saved.state)
+            }
+            var documents: [String: Data] = [:]
+            let files = EvidenceFileStore(vaultURL: vaultURL)
+            let states = [state] + revisions.filter(\.revision.recoverable).map(\.state)
+            for snapshot in states {
+                guard let vault = try snapshot.vault() else { continue }
+                for document in VaultArchive.references(in: vault) where documents[document.digest] == nil {
+                    documents[document.digest] = try files.read(document)
+                }
+            }
+            return try VaultArchive.Contents(state: state, documents: documents, revisions: revisions, retention: readRetention())
+        }
     }
 
     /// Cheap vault-only reads let the desktop check for external edits without loading all presets.
     public func vaultBytes() throws -> Data? {
-        if let encrypted { return try encrypted.contents().state.vaultData }
+        if let archive { return try archive.contents().state.vaultData }
         return try locked { try optionalData(vaultURL) }
     }
 
     @discardableResult
     public func commit(expected: String? = nil, summary: String, attachment: VaultAttachment? = nil,
                        _ edit: (inout VaultState) throws -> Void) throws -> VaultCommit {
-        if let encrypted {
-            return try encrypted.update { contents in
+        if let archive {
+            return try archive.update { contents in
                 let before = contents.state
                 if let expected, expected != before.token { throw VaultStateConflict.stale }
                 var after = before
@@ -132,7 +159,7 @@ public struct VaultStateStore: Sendable {
                     }
                     contents.documents[attachment.document.digest] = attachment.bytes
                 }
-                return (try persistEncrypted(&contents, after: after, summary: summary), true)
+                return (try persistArchive(&contents, after: after, summary: summary), true)
             }
         }
         return try locked(create: true) {
@@ -148,13 +175,13 @@ public struct VaultStateStore: Sendable {
     }
 
     public func history() throws -> [VaultRevision] {
-        if let encrypted { return try encrypted.contents().revisions.map(\.revision) }
+        if let archive { return try archive.contents().revisions.map(\.revision) }
         return try locked { try revisionFiles().map { try readRevision($0).revision } }
     }
 
     public func revision(_ id: String) throws -> (revision: VaultRevision, state: VaultState) {
-        if let encrypted {
-            let saved = try encryptedRevision(id, in: encrypted.contents())
+        if let archive {
+            let saved = try archiveRevision(id, in: archive.contents())
             return (saved.revision, saved.state)
         }
         return try locked {
@@ -165,11 +192,11 @@ public struct VaultStateStore: Sendable {
 
     @discardableResult
     public func restore(_ id: String, expected: String) throws -> VaultCommit {
-        if let encrypted {
-            return try encrypted.update { contents in
+        if let archive {
+            return try archive.update { contents in
                 guard expected == contents.state.token else { throw VaultStateConflict.stale }
-                let saved = try encryptedRevision(id, in: contents)
-                let result = try persistEncrypted(&contents, after: saved.state, summary: "Restore revision")
+                let saved = try archiveRevision(id, in: contents)
+                let result = try persistArchive(&contents, after: saved.state, summary: "Restore revision")
                 return (result, result.changed)
             }
         }
@@ -183,15 +210,15 @@ public struct VaultStateStore: Sendable {
     }
 
     public func retention() throws -> Int {
-        if let encrypted { return try encrypted.contents().retention }
+        if let archive { return try archive.contents().retention }
         return try locked { try readRetention() }
     }
 
     /// Keep at least one readable state when the history contains one.
     public func prune(keeping count: Int, configure: Bool = false) throws {
         guard (1...500).contains(count) else { throw DataIssue("Keep between 1 and 500 revisions.") }
-        if let encrypted {
-            try encrypted.update { contents in
+        if let archive {
+            try archive.update { contents in
                 let oldCount = contents.revisions.count
                 let oldLimit = contents.retention
                 if configure { contents.retention = count }
@@ -211,7 +238,7 @@ public struct VaultStateStore: Sendable {
 
     public func pruningCandidates(keeping count: Int) throws -> [String] {
         guard (1...500).contains(count) else { throw DataIssue("Keep between 1 and 500 revisions.") }
-        if let encrypted { return try encrypted.contents().revisions.dropFirst(count).map(\.revision.id) }
+        if let archive { return try archive.contents().revisions.dropFirst(count).map(\.revision.id) }
         return try locked { try prunableRevisions(keeping: count) }
     }
 
@@ -248,20 +275,20 @@ public struct VaultStateStore: Sendable {
                              presets: diff.presets, recoverable: (try? before.vault()) != nil)
     }
 
-    private func encryptedRevision(_ id: String, in contents: EncryptedVault.Contents) throws -> EncryptedVault.Revision {
+    private func archiveRevision(_ id: String, in contents: VaultArchive.Contents) throws -> VaultArchive.Revision {
         guard let saved = contents.revisions.first(where: { $0.revision.id == id }) else {
             throw DataIssue("Revision not found.")
         }
         return saved
     }
 
-    private func persistEncrypted(_ contents: inout EncryptedVault.Contents, after: VaultState,
+    private func persistArchive(_ contents: inout VaultArchive.Contents, after: VaultState,
                                   summary: String) throws -> VaultCommit {
         let before = contents.state
         guard before != after else { return VaultCommit(changed: false, revision: nil) }
         try validate(after)
         let revision = makeRevision(before: before, after: after, summary: summary, head: contents.revisions.first?.revision.id)
-        contents.revisions.insert(EncryptedVault.Revision(revision: revision, state: before), at: 0)
+        contents.revisions.insert(VaultArchive.Revision(revision: revision, state: before), at: 0)
         contents.state = after
         if contents.revisions.count > contents.retention {
             contents.revisions.removeLast(contents.revisions.count - contents.retention)
@@ -270,9 +297,9 @@ public struct VaultStateStore: Sendable {
         return VaultCommit(changed: true, revision: revision)
     }
 
-    private func trimDocuments(_ contents: inout EncryptedVault.Contents) {
+    private func trimDocuments(_ contents: inout VaultArchive.Contents) {
         let states = [contents.state] + contents.revisions.map(\.state)
-        let digests = Set(states.compactMap { try? $0.vault() }.flatMap { EncryptedVault.references(in: $0) }.map(\.digest))
+        let digests = Set(states.compactMap { try? $0.vault() }.flatMap { VaultArchive.references(in: $0) }.map(\.digest))
         contents.documents = contents.documents.filter { digests.contains($0.key) }
     }
 
@@ -335,7 +362,7 @@ public struct VaultStateStore: Sendable {
     }
 
     private func locked<T>(create: Bool = false, _ operation: () throws -> T) throws -> T {
-        guard !EncryptedVault.isEncryptedURL(vaultURL) else { throw DataIssue("Unlock the encrypted vault first.") }
+        guard !VaultArchive.isArchiveURL(vaultURL) else { throw DataIssue("Open the vault first.") }
         if create { try privateDirectory(folder) }
         let lockPath = folder.appendingPathComponent(".vault.lock").path
         var lock = open(lockPath, create ? O_CREAT | O_RDWR | O_NOFOLLOW : O_RDONLY | O_NOFOLLOW, 0o600)

@@ -15,6 +15,10 @@ open dist/VeraData.app
 
 This creates an ad-hoc-signed app for local use. Leave VeraData running to use its global shortcut.
 
+To install it in **Applications**, quit VeraData and run `./scripts/install-app.sh` after building. The script moves the new app into place and keeps the previous build if one exists.
+
+When a newer stable version is available, **Update App…** appears in the sidebar and in the **VeraData** menu. Either button opens that version on GitHub. Get the newer source, then run the build and install steps again.
+
 1. Click **Open Fictional Demo**. In another app, press **⌃⌥Space**, type `phone`, press **Return**, and paste with **⌘V**. The expected value is `+1 (202) 555-0142`.
 2. Open Quick Search again. Search for `Juniper` and press **Return** on one of the company’s two roles. The role and dates appear at the top of the palette.
 3. Search for `start year` and press **Return**. Operations Lead gives `2024` and Operations Coordinator gives `2022`. Use the arrows in the palette to switch roles or **Search All** to clear the scope.
@@ -22,12 +26,15 @@ This creates an ad-hoc-signed app for local use. Leave VeraData running to use i
 
 You can also invoke search with **⌘K** inside VeraData. If the global shortcut conflicts with another app, choose an alternative in **Records › Global Search Shortcut**.
 
-## Encrypted working vaults
+## Save and back up a vault
 
-- Choose **File › Encrypt Current Vault…** to copy an existing vault, its presets, and its evidence into one encrypted file. Start empty with **File › New Encrypted Vault…**. The suggested name is `Database.veradata`. Use separate names such as `Work.veradata` and `Project-7.veradata` to keep independent vaults.
-- Save the file in a folder you choose, including iCloud Drive or a folder managed by Google Drive. Use **File › Open Encrypted Vault…** to switch files, and **Lock Vault** to clear the open vault from the app. Keep the password in a safe place. VeraData cannot recover it.
-- Work on one device at a time and wait for its provider to finish syncing before opening the vault elsewhere. VeraData rejects stale saves and blocks writes when macOS reports an unresolved conflict. If your provider creates a separate conflict copy, preserve both files before reviewing them.
-- Use **File › Back Up Vault…** for a separate encrypted copy. Test a backup by opening a copy under a fresh filename. The original JSON vault and its older revision history remain available after migration. New revisions stay inside the encrypted vault.
+VeraData saves edits automatically. Choose **File › Save Vault As…** to create a complete working copy that includes all profiles, evidence originals and marks, export presets, settings, and revision history. Future edits go to the new vault. You can reopen the original or another copy with **File › Open Vault…**.
+
+- **Unencrypted** creates a `.veradatavault` file with no vault password. Anyone who can read the file can access its contents.
+- **Password-protected** creates an encrypted `.veradata` file. Keep its password somewhere safe. Use **File › Lock Vault** to clear an open password-protected vault from the app. VeraData cannot recover its password.
+- **Back Up Records as JSON…** creates a readable copy of all profiles, records, and the global search shortcut. Evidence files and marks, export presets, and revision history are excluded. Use **File › Import Records…** to recover selected records, or **Restore Records from JSON…** to replace the records in an unencrypted vault.
+
+Either complete vault format can be saved in iCloud Drive. Work on one device at a time and let syncing finish before switching devices. VeraData rejects stale saves and blocks writes when macOS reports an unresolved conflict. Keep both files if the provider creates a conflict copy.
 
 ## Everyday use
 
@@ -39,7 +46,7 @@ You can also invoke search with **⌘K** inside VeraData. If the global shortcut
 - **Find saved coordinates.** In an address editor, choose **Add Coordinates** and enter decimal latitude and longitude. Search for the address name and `coordinates` to copy the pair for a map or form.
 - **Keep address history.** Add a new address record when you move. Enter the previous address’s **Through** date so it appears as historical. Address use and date history are stored independently.
 - **Share selected data.** Choose **File › Export Data** to select fields and individual list items across the active profile. Arrange the records, then review the exact JSON before saving. Use a record’s **Export Selected Fields** command for the original single-record flat JSON format.
-- **Back up the vault.** Choose **File › Back Up Vault** to back up all profiles and settings. For a JSON vault, **File › Restore Vault** validates a backup and asks before replacing the current vault. Open an encrypted backup as a separate file. For routine recovery, **File › Revision History** lets you inspect and restore an earlier vault and its presets. History can retain deleted data. Plain JSON vaults and record exports contain readable JSON.
+- **Recover an earlier version.** Choose **File › Revision History** to inspect and restore earlier records and presets. History can retain deleted data.
 
 ### Reuse address fields in Mailing lines
 
@@ -61,7 +68,7 @@ Lines whose placeholders are all empty are skipped. The Mac record view lists wh
 
 Open a record and choose **Evidence… → Attach PDF or Image…**. Draw one box around the supporting passage, check the fields it actually shows, then choose **Mark as Checked**. For an address block, **Select Address Fields** selects populated street, unit, city, region, and postal code fields together. Add country or mailing lines individually if the document shows them. A later edit to one field makes that field **Needs review**. Reopen the mark to compare it again.
 
-VeraData keeps a private local copy of the source. Evidence stays out of résumé, structured, and flat exports. The Mac app can include explicitly chosen evidence in an iPhone transfer. For a JSON vault, include the adjacent `vault.json.evidence` folder when making an independent backup of evidence. Encrypted vault backups already include the evidence. [Evidence storage and recovery](docs/architecture.md#field-evidence)
+VeraData keeps a private copy of the source. **Save Vault As…** includes the original files and their marks in either format. Résumé, structured, flat, and JSON record backups exclude evidence. The Mac app can include explicitly chosen evidence in an iPhone transfer. [Evidence storage and recovery](docs/architecture.md#field-evidence)
 
 ## Import records
 

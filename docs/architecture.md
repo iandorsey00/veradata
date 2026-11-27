@@ -12,7 +12,7 @@ VeraData supports [JSON Schema](https://json-schema.org/draft/2020-12/) for inte
 
 ## Privacy model
 
-The app does not make network requests or use accounts, analytics, external AI, or background synchronization. It holds the open vault in process memory. The default file is `~/Library/Application Support/VeraData/vault.json`. Newly created vault directories and files use modes `0700` and `0600`. The app and CLI share an interprocess lock. Updates check the opened revision or reviewed token before committing. A pending journal makes changes to the vault and preset files recoverable as one transaction. A failed validation leaves both unchanged.
+The Mac app checks public GitHub tags at launch and periodically while the main window is open. The request contains no vault data. The app does not use accounts, analytics, external AI, or background vault synchronization. It holds the open vault in process memory. The default file is `~/Library/Application Support/VeraData/vault.json`. Newly created vault directories and files use modes `0700` and `0600`. The app and CLI share an interprocess lock. Updates check the opened revision or reviewed token before committing. A pending journal makes changes to the vault and preset files recoverable as one transaction. A failed validation leaves both unchanged.
 
 Plain JSON vaults and their backups are plaintext. macOS disk encryption, user login protection, and encrypted backup destinations protect those files. Treat access to the unlocked user session, readable backups, and synced export folders as access to the information. Encrypted vaults use a separate password with no key-recovery process. Keep credentials and payment secrets in a tool designed to store them.
 
@@ -20,11 +20,11 @@ Copying puts the chosen representation on the macOS general pasteboard. Clipboar
 
 ## Backup and recovery
 
-1. Choose **File › Back Up Vault**. Save the readable JSON file somewhere protected and separate from the current vault.
-2. In a fresh installation, choose **File › Restore Vault** and select the backup. Verify the number of profiles in the confirmation and choose **Replace Vault**.
-3. Open a known record, check an original value and its formatted representation, and confirm that the preferred shortcut is available on the new Mac.
+1. Choose **File › Save Vault As…**, select **Unencrypted** or **Password-protected**, and save to a new filename. VeraData switches to the saved vault and leaves the source available.
+2. To resume from a complete vault, choose **File › Open Vault…** and select the file. Verify a known record, an evidence attachment, and a saved preset.
+3. For a records-only backup, choose **File › Back Up Records as JSON…**. Use **Import Records…** to review selected records, or **Restore Records from JSON…** to replace all profiles and the global search shortcut in an unencrypted vault.
 
-Manual restore replaces the vault and keeps the preset directory separate. Back up both for independent recovery. Use **File › Revision History** or `veradata history` to restore an earlier vault and its presets together. The restore itself retains the current state as a revision.
+Restoring records from JSON leaves the current presets in place. Use **File › Revision History** or `veradata history` to restore an earlier vault and its presets together. The restore itself retains the current state as a revision.
 
 ### Transaction recovery and external edits
 
@@ -44,14 +44,14 @@ A browser adapter can preview a full employment section and fill approved values
 
 A Mac evidence mark references an immutable local copy of a PDF or image, the page and normalized rectangle, and a separate fingerprint for every field checked against the area. VeraData keeps the user’s data as entered. A mark records a manual comparison with that source. VeraData checks the file fingerprint when it opens the document. Copies are stored by SHA-256 digest beside the vault in `vault.json.evidence`, with private file permissions. The same document takes one copy even when used by multiple marks. The original remains outside VeraData and can be moved or edited independently.
 
-Revision history includes marks and restores their links. Removing a mark leaves the document copy available to older revisions. An independent vault backup includes the marks, and restoring the source documents requires the adjacent evidence folder as well. To restore a differently named vault, name the folder after the new vault filename followed by `.evidence`. The folder contains readable original documents. Keep it private like the vault and presets. Record imports and ordinary exports omit evidence links.
+Revision history includes marks and restores their links. Removing a mark leaves the document copy available to older revisions. Complete vault files include the originals for current and retained historical marks. If you manually copy a legacy JSON working vault, keep its adjacent evidence folder with it. The folder name is the vault filename followed by `.evidence`. Record imports and ordinary exports omit evidence links.
 
-## Encrypted working files
+## Complete vault files
 
-A `.veradata` file stores one authenticated snapshot. The version 1 binary header contains a format signature and a random 16-byte salt. CommonCrypto derives a 256-bit key using PBKDF2-HMAC-SHA256 (600,000 rounds). CryptoKit uses AES-256-GCM with a fresh nonce on each write and authenticates the header as associated data. The encrypted payload contains the current vault JSON, presets, revisions, and deduplicated original evidence bytes. Pruning revisions also removes evidence bytes if no current record or retained revision references them. Selective exports remain independent and readable where their formats call for it.
+A complete vault contains the current vault JSON, presets, revision history and retention setting, and deduplicated original evidence bytes. An unencrypted `.veradatavault` file stores a format signature followed by the JSON payload. A password-protected `.veradata` file stores an authenticated snapshot. Its version 1 binary header contains a format signature and a random 16-byte salt. CommonCrypto derives a 256-bit key using PBKDF2-HMAC-SHA256 (600,000 rounds). CryptoKit uses AES-256-GCM with a fresh nonce on each write and authenticates the header as associated data. Pruning revisions can remove evidence bytes once no current record or retained revision references them.
 
-The app remembers the last encrypted file's path on the Mac. It derives a key on unlock and does not store the password in settings or a keychain. Different files can use different passwords. Migration writes a new encrypted file without altering the JSON vault or importing its existing local revision history. **Back Up Vault** copies the already encrypted bytes to a new file. Copies are protected by the password used for the working file.
+The app remembers the last open vault path on the Mac. It derives a key on unlock and does not store the password in settings or a keychain. **Save Vault As…** writes a new complete file from a consistent snapshot of the source. You can set a different password for each password-protected copy. Opening an existing `.veradata` file uses its existing password.
 
-The encrypted backend uses `NSFileCoordinator` inside the system iCloud Drive and cloud provider folders and a per-file interprocess lock for local files. It checks the previously read file before replacing it, and declines writes while macOS reports unresolved document conflicts. The single file eliminates syncing independently written sidecars. Cloud providers may still produce conflicts or separate copies after offline edits. VeraData leaves such copies for the user to review and does not merge them. Use a single writer across devices and let sync finish between sessions. These are file sync semantics, with no VeraData-hosted sync service.
+Both complete formats use `NSFileCoordinator` in iCloud Drive and cloud provider folders and a per-file interprocess lock for local files. VeraData checks the previously read file before replacing it and declines writes while macOS reports unresolved document conflicts. Cloud providers may produce conflicts or separate copies after offline edits. Use a single writer across devices and let sync finish between sessions.
 
-To return to VeraData 0.9, use the preserved JSON vault from before migration. Edits made only in the encrypted working file stay in that file. Keep an encrypted backup and the current app available to reopen it.
+To return to VeraData 0.10, keep the current version available to open unencrypted `.veradatavault` files. Before rolling back, use **Save Vault As… → Password-protected** to make a compatible `.veradata` copy with the latest records, evidence, presets, settings, and history. You can also open a preserved legacy JSON working vault or restore a JSON records backup.

@@ -195,8 +195,8 @@ extension CLICommands {
         switch command {
         case "backup":
             try args.validate(0...0)
-            if let encrypted = store.encrypted {
-                try emit(encrypted.backupData())
+            if let archive = store.archive {
+                try emit(archive.backupData())
             } else {
                 let vault = try load()
                 try emit(vault.data())

@@ -111,9 +111,13 @@ public struct EvidenceFileStore {
     public let directory: URL
     private let stateStore: VaultStateStore
 
-    public init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
+    public init(vaultURL: URL, archive: VaultArchive? = nil) {
         directory = vaultURL.deletingLastPathComponent().appendingPathComponent(vaultURL.lastPathComponent + ".evidence")
-        stateStore = VaultStateStore(vaultURL: vaultURL, encrypted: encrypted)
+        stateStore = VaultStateStore(vaultURL: vaultURL, archive: archive)
+    }
+
+    public init(vaultURL: URL, encrypted: EncryptedVault?) {
+        self.init(vaultURL: vaultURL, archive: encrypted)
     }
 
     public static func readInput(_ url: URL) throws -> Data {
@@ -129,8 +133,8 @@ public struct EvidenceFileStore {
     }
 
     public func save(_ bytes: Data, for document: EvidenceDocument) throws {
-        guard !EncryptedVault.isEncryptedURL(stateStore.vaultURL) else {
-            throw DataIssue("Save the evidence and mark together in the encrypted vault.")
+        guard !VaultArchive.isArchiveURL(stateStore.vaultURL) else {
+            throw DataIssue("Save the evidence and mark together in the vault.")
         }
         let location = try path(for: document)
         guard document.matches(bytes) else {
@@ -141,8 +145,8 @@ public struct EvidenceFileStore {
     }
 
     public func contains(_ document: EvidenceDocument) -> Bool {
-        if stateStore.encrypted != nil { return document.isValid }
-        if EncryptedVault.isEncryptedURL(stateStore.vaultURL) { return false }
+        if stateStore.archive != nil { return document.isValid }
+        if VaultArchive.isArchiveURL(stateStore.vaultURL) { return false }
         guard let location = try? path(for: document),
               let attributes = try? location.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         else { return false }
@@ -150,8 +154,8 @@ public struct EvidenceFileStore {
     }
 
     public func read(_ document: EvidenceDocument) throws -> Data {
-        if let encrypted = stateStore.encrypted {
-            guard let bytes = try encrypted.contents().documents[document.digest], document.matches(bytes) else {
+        if let archive = stateStore.archive {
+            guard let bytes = try archive.contents().documents[document.digest], document.matches(bytes) else {
                 throw DataIssue("The local copy of this evidence is missing or damaged.")
             }
             return bytes

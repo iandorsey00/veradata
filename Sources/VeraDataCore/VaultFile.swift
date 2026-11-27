@@ -6,14 +6,19 @@ public struct VaultFile {
     private var revision: Data?
     private var loaded = false
     private var observed = FileObservation()
-    public let encrypted: EncryptedVault?
+    public let archive: VaultArchive?
+    public var encrypted: EncryptedVault? { VaultArchive.isEncryptedURL(url) ? archive : nil }
 
-    public init(url: URL, encrypted: EncryptedVault? = nil) {
+    public init(url: URL, archive: VaultArchive? = nil) {
         self.url = url
-        self.encrypted = encrypted?.url == url ? encrypted : nil
+        self.archive = archive?.url == url ? archive : nil
     }
 
-    public var stateStore: VaultStateStore { VaultStateStore(vaultURL: url, encrypted: encrypted) }
+    public init(url: URL, encrypted: EncryptedVault?) {
+        self.init(url: url, archive: encrypted)
+    }
+
+    public var stateStore: VaultStateStore { VaultStateStore(vaultURL: url, archive: archive) }
 
     private struct FileObservation: Equatable {
         var inode: UInt64?
@@ -38,7 +43,7 @@ public struct VaultFile {
     }
 
     public mutating func load() throws -> Vault? {
-        let observation = encrypted == nil ? FileObservation() : try FileObservation(url)
+        let observation = archive == nil ? FileObservation() : try FileObservation(url)
         let data = try stateStore.vaultBytes()
         let vault = try data.map(Vault.init(data:))
         observed = observation
@@ -48,7 +53,7 @@ public struct VaultFile {
     }
 
     public func hasExternalChanges() throws -> Bool {
-        if encrypted != nil { return try !loaded || FileObservation(url) != observed }
+        if archive != nil { return try !loaded || FileObservation(url) != observed }
         let bytes = try stateStore.vaultBytes()
         return !loaded || bytes != revision
     }

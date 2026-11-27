@@ -4,6 +4,7 @@ import VeraDataCore
 
 struct MainView: View {
     @ObservedObject var state: AppState
+    let updateURL: URL?
     @ViewState private var newProfile: Bool = false
     @ViewState private var profileName: String = ""
     @ViewState private var proposedDeletion: Record?
@@ -76,7 +77,7 @@ struct MainView: View {
             Button("Replace Vault", role: .destructive) { state.restore(candidate) }
             Button("Cancel", role: .cancel) {}
         } message: { candidate in
-            Text(VeraText.format("This replaces all local profiles and the search shortcut with the backup’s %lld profiles. Back up your current vault first if you want to keep it.", candidate.profiles.count))
+            Text(VeraText.format("This replaces your current profiles and search shortcut with the backup’s %lld profiles and shortcut. Use Save Vault As… first if you want to keep a complete copy.", candidate.profiles.count))
         }
     }
 
@@ -87,8 +88,17 @@ struct MainView: View {
                 .tracking(-1.1)
                 .padding(.horizontal, 20).padding(.top, 21).padding(.bottom, 17)
                 .accessibilityAddTraits(.isHeader)
-            if state.isEncrypted {
-                Text(state.vaultFilename)
+            if let updateURL {
+                Button {
+                    NSWorkspace.shared.open(updateURL)
+                } label: {
+                    Label("Update App…", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal, 20).padding(.bottom, 12)
+            }
+            if state.showsVaultFilename {
+                Label(state.vaultFilename, systemImage: state.isEncrypted ? "lock" : "doc")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     .help(state.vaultFilename)
                     .padding(.horizontal, 20).padding(.bottom, 10)
@@ -160,8 +170,9 @@ struct MainView: View {
                 .disabled(!state.canEdit)
                 Spacer()
                 Menu {
-                    Button("Back Up Vault…", action: state.backup)
-                    Button("Restore Vault…", action: state.chooseRestore).disabled(state.isEncrypted)
+                    Button("Save Vault As…", action: state.saveVaultAs).disabled(!state.canSwitchVault)
+                    Button("Back Up Records as JSON…", action: state.backUpRecords).disabled(!state.canSwitchVault)
+                    Button("Restore Records from JSON…", action: state.chooseRestore).disabled(state.isEncrypted)
                     Button("Export for iPhone…") { state.phoneExportOpen = true }.disabled(!state.canExportToPhone)
                 } label: {
                     Label("Vault Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
@@ -247,7 +258,7 @@ struct MainView: View {
                         Text(state.vaultFilename).foregroundStyle(.secondary)
                         HStack {
                             Button("Unlock Vault…", action: state.unlockVault).buttonStyle(.borderedProminent)
-                            Button("Open Encrypted Vault…", action: state.chooseEncryptedVault)
+                            Button("Open Vault…", action: state.chooseVault)
                         }
                     } else {
                         Text("Reopen VeraData after recovering your vault file.")
