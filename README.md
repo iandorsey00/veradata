@@ -1,4 +1,4 @@
-# VeraData
+# VeraData · 核录
 
 VeraData is a local-first macOS utility for keeping reusable information close at hand. Save a phone number, address, or employment record once, then find and copy the detail a form asks for. A job can stay selected while you look up its start date, title, and responsibilities.
 
@@ -28,7 +28,7 @@ You can also invoke search with **⌘K** inside VeraData. If the global shortcut
 
 ## Save and back up a vault
 
-VeraData saves edits automatically. Choose **File › Save Vault As…** to create a complete working copy that includes all profiles, evidence originals and marks, export presets, settings, and revision history. Future edits go to the new vault. You can reopen the original or another copy with **File › Open Vault…**.
+VeraData saves edits automatically. Choose **File › Save Vault As…** to create a complete working copy that includes all profiles, evidence originals and marks, export presets, settings, and revision history. The first vault save suggests `Database.veradata`. Future edits go to the new vault. You can reopen the original or another copy with **File › Open Vault…**.
 
 - **Unencrypted** creates a `.veradata` file with no vault password. Anyone who can read the file can access its contents.
 - **Password-protected** creates an encrypted `.veradata` file. Keep its password somewhere safe. Use **File › Lock Vault** to clear an open password-protected vault from the app. VeraData cannot recover its password.
@@ -127,7 +127,7 @@ The interface follows the app’s system language in English or Simplified Chine
 
 ### iPhone 使用方式
 
-在 Mac 上选择 **文件 › 导出到 iPhone**，勾选要携带的记录。将 JSON 文件传到 iPhone 后，在 VeraData 中选择 **导入传输文件**。导入后可离线搜索并复制字段。界面支持英语和简体中文，已保存的内容保留原文。可逐个选择证据文件，或点击 **全选所选记录的证据**。在 iPhone 上打开记录，在 **证据** 下点按文件可查看原始 PDF 或图像的标记区域。
+在 Mac 上选择 **文件 › 导出到 iPhone**，勾选要携带的记录。将 JSON 文件传到 iPhone 后，在核录中选择 **导入传输文件**。导入后可离线搜索并复制字段。界面支持英语和简体中文，已保存的内容保留原文。可逐个选择证据文件，或点击 **全选所选记录的证据**。在 iPhone 上打开记录，在 **证据** 下点按文件可查看原始 PDF 或图像的标记区域。
 
 ## Development
 

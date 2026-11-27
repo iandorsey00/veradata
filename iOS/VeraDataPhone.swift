@@ -103,7 +103,7 @@ private struct PhoneLibrary: View {
                     }
                 }
             }
-            .navigationTitle("VeraData")
+            .navigationTitle(VeraText.text("VeraData"))
             .toolbar {
                 if let profile, let profiles = store.transfer?.profiles {
                     ToolbarItem(placement: .topBarLeading) {

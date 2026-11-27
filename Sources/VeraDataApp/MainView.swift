@@ -58,7 +58,7 @@ struct MainView: View {
         .sheet(isPresented: $state.historyOpen) {
             RevisionHistoryView(store: state.stateStore, restore: state.restoreRevision)
         }
-        .alert("VeraData", isPresented: Binding(
+        .alert(VeraText.text("VeraData"), isPresented: Binding(
             get: { state.problem != nil }, set: { if !$0 { state.problem = nil } }
         )) {
             Button("OK", role: .cancel) { state.problem = nil }
@@ -92,7 +92,7 @@ struct MainView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("VeraData")
+            Text(VeraText.text("VeraData"))
                 .font(.custom("Helvetica Neue", size: 27, relativeTo: .title).weight(.bold))
                 .tracking(-1.1)
                 .padding(.horizontal, 20).padding(.top, 21).padding(.bottom, 17)

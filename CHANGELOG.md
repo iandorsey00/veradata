@@ -1,5 +1,10 @@
 # VeraData changelog
 
+## 0.12.1 · 2026-11-27
+
+- Display the name **核录** in Simplified Chinese on Mac and iPhone. The English display name is **VeraData**.
+- Suggest `Database.veradata` when saving a new vault.
+
 ## 0.12.0 · 2026-11-27
 
 - Use `.veradata` for both unencrypted and password-protected vaults. Finder displays the VeraData icon for these files. To open an existing `.veradatavault` file, rename its extension to `.veradata`.

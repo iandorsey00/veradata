@@ -14,7 +14,7 @@ struct VeraDataApp: App {
     @StateObject private var updates = AppUpdates()
 
     var body: some Scene {
-        Window("VeraData", id: "vault") {
+        Window(VeraText.text("VeraData"), id: "vault") {
             MainView(state: state, updateURL: updates.updateURL)
                 .frame(minWidth: 690, minHeight: 480)
                 .tint(.blue)
@@ -105,6 +105,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     }
     private static let workingVaultPreference = "WorkingVaultPath"
     private static let vaultType = UTType(exportedAs: "com.iandorsey.veradata.vault", conformingTo: .data)
+    private static let defaultVaultFilename = "Database.veradata"
     private var hotkey: GlobalShortcut?
     private var searchPanel: NSPanel?
     private var returnApp: NSRunningApplication?
@@ -304,7 +305,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         panel.title = VeraText.text("New Encrypted Vault")
         panel.allowedContentTypes = [Self.vaultType]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "Database.veradata"
+        panel.nameFieldStringValue = Self.defaultVaultFilename
         guard panel.runModal() == .OK, let url = panel.url,
               let password = requestVaultPassword(creating: true, filename: url.lastPathComponent) else { return }
         do {
@@ -390,7 +391,8 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         panel.allowedContentTypes = [Self.vaultType]
         panel.message = VeraText.text("Includes records, evidence, verification, presets, settings, and history. VeraData will use the new vault for future edits. The original stays where it is.")
         panel.nameFieldStringValue = VaultArchive.isArchiveURL(store.url)
-            ? VeraText.format("%@ Copy", store.url.deletingPathExtension().lastPathComponent) : "VeraData"
+            ? VeraText.format("%@ Copy", store.url.deletingPathExtension().lastPathComponent)
+            : Self.defaultVaultFilename
         let picker = NSPopUpButton(frame: .zero, pullsDown: false)
         picker.addItems(withTitles: [VeraText.text("Unencrypted"), VeraText.text("Password-protected")])
         picker.selectItem(at: isEncrypted ? 1 : 0)

@@ -2,7 +2,8 @@ import Foundation
 
 public enum VeraText {
     private static let bundle: Bundle = {
-        if Bundle.main.url(forResource: "zh-Hans", withExtension: "lproj") != nil { return .main }
+        if Bundle.main.url(forResource: "Localizable", withExtension: "strings",
+                           subdirectory: nil, localization: "zh-Hans") != nil { return .main }
         // The installed CLI runs from Contents/Helpers, while its translations live in the app's Resources folder.
         if let helpers = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent(),
            helpers.lastPathComponent == "Helpers" {

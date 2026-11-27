@@ -52,6 +52,7 @@ cp "$products/veradata-cli" "$app/Contents/Helpers/veradata"
 cp Sources/VeraDataApp/Resources/demo.json "$app/Contents/Resources/"
 cp scripts/Info.plist "$app/Contents/Info.plist"
 cp -R Sources/VeraDataCore/Resources/*.lproj "$app/Contents/Resources/"
+cp scripts/zh-Hans.lproj/InfoPlist.strings "$app/Contents/Resources/zh-Hans.lproj/"
 
 cp Assets/VeraData.icns "$app/Contents/Resources/"
 

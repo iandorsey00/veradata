@@ -237,6 +237,8 @@ struct VeraDataTests {
     }
 
     @Test func testBilingualSearchAndLocalizedText() throws {
+        #expect(VeraText.text("VeraData", language: "en") == "VeraData")
+        #expect(VeraText.text("VeraData", language: "zh-Hans") == "核录")
         let records = try demo().profiles[0].records
         let index = RetrievalIndex(records: records)
         #expect(VeraText.text("Job title", language: "zh-Hans") == "职位名称")
