@@ -2,7 +2,7 @@ import Foundation
 import VeraDataCore
 
 extension CLICommands {
-    private var stateStore: VaultStateStore { VaultStateStore(vaultURL: store.url) }
+    private var stateStore: VaultStateStore { store.stateStore }
     private static let reviewFlags: Set<String> = ["--apply", "--commit", "--expect", "--human", "--show-values"]
 
     func applyChanges(_ args: CLIArguments) throws {

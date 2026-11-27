@@ -31,6 +31,11 @@ struct MainView: View {
         .sheet(item: $state.editor) { draft in
             RecordEditor(initial: draft, save: state.saveRecord)
         }
+        .sheet(item: $state.evidenceRecord) { record in
+            EvidenceView(record: record, files: state.evidenceFiles) { marks, attachment in
+                try state.saveEvidence(marks, for: record, attachment: attachment)
+            }
+        }
         .sheet(isPresented: $state.phoneExportOpen) {
             PhoneExportView(vault: state.vault, export: state.exportToPhone)
         }
@@ -82,6 +87,12 @@ struct MainView: View {
                 .tracking(-1.1)
                 .padding(.horizontal, 20).padding(.top, 21).padding(.bottom, 17)
                 .accessibilityAddTraits(.isHeader)
+            if state.isEncrypted {
+                Text(state.vaultFilename)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .help(state.vaultFilename)
+                    .padding(.horizontal, 20).padding(.bottom, 10)
+            }
 
             Menu {
                 ForEach(state.vault.profiles) { profile in
@@ -150,7 +161,7 @@ struct MainView: View {
                 Spacer()
                 Menu {
                     Button("Back Up Vault…", action: state.backup)
-                    Button("Restore Vault…", action: state.chooseRestore)
+                    Button("Restore Vault…", action: state.chooseRestore).disabled(state.isEncrypted)
                     Button("Export for iPhone…") { state.phoneExportOpen = true }.disabled(!state.canExportToPhone)
                 } label: {
                     Label("Vault Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
@@ -194,6 +205,8 @@ struct MainView: View {
                             .buttonStyle(.borderedProminent)
                         Button("Edit") { state.editor = RecordDraft(record: record) }
                             .disabled(!state.canEdit)
+                        Button("Evidence…") { state.evidenceRecord = record }
+                            .disabled(!state.canEdit || (record.evidence.isEmpty && !record.fields.values.contains(where: EvidenceMark.canCheck)))
                         Menu {
                             Button("Copy Record as Text") { state.copy(record.copyableSummary, label: "record") }
                             Button("Export Selected Fields…") { state.openExport(recordID: record.id) }
@@ -215,7 +228,7 @@ struct MainView: View {
                             .foregroundStyle(.secondary).padding(.vertical, 22)
                     }
                     ForEach(record.values) { field in
-                        FieldRow(field: field, copy: state.copy)
+                        FieldRow(field: field, evidenceStatus: evidenceStatus(for: field, in: record), copy: state.copy)
                         Divider()
                     }
                 }
@@ -228,9 +241,18 @@ struct MainView: View {
         } else {
             VStack(alignment: .leading, spacing: 15) {
                 if !state.canEdit {
-                    Text("Vault unavailable").font(.largeTitle.weight(.semibold))
-                    Text("Reopen VeraData after recovering your vault file.")
-                        .foregroundStyle(.secondary)
+                    Text(state.isEncrypted ? VeraText.text("Vault locked") : VeraText.text("Vault unavailable"))
+                        .font(.largeTitle.weight(.semibold))
+                    if state.isEncrypted {
+                        Text(state.vaultFilename).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Unlock Vault…", action: state.unlockVault).buttonStyle(.borderedProminent)
+                            Button("Open Encrypted Vault…", action: state.chooseEncryptedVault)
+                        }
+                    } else {
+                        Text("Reopen VeraData after recovering your vault file.")
+                            .foregroundStyle(.secondary)
+                    }
                 } else if state.profile.records.isEmpty {
                     Text("Keep your information close")
                         .font(.system(size: 31, weight: .semibold)).tracking(-0.7)
@@ -254,6 +276,14 @@ struct MainView: View {
         }
     }
 
+    private func evidenceStatus(for field: RecordValue, in record: Record) -> String? {
+        guard field.path.count == 1, let key = field.path.first else { return nil }
+        let marks = record.evidence.filter { $0.fields[key] != nil }
+        guard !marks.isEmpty else { return nil }
+        return marks.contains { $0.matches(key, in: record) && state.evidenceFiles.contains($0.document) }
+            ? "Checked against source" : "Needs review"
+    }
+
     @ViewBuilder
     private var status: some View {
         if let status = state.status {
@@ -272,20 +302,44 @@ struct MainView: View {
 
 private struct FieldRow: View {
     let field: RecordValue
+    let evidenceStatus: String?
     let copy: (String, String) -> Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(field.localizedLabel).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                Text(field.display)
-                    .font(.body)
-                    .foregroundStyle(field.representations.isEmpty ? .secondary : .primary)
+                HStack {
+                    Text(field.localizedLabel).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                    if let evidenceStatus {
+                        Text(VeraText.text(evidenceStatus)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let items = field.bulletItems {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(items.indices, id: \.self) { index in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("•").accessibilityHidden(true)
+                                Text(items[index]).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(.leading, 12)
                     .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(field.display)
+                        .font(.body)
+                        .foregroundStyle(field.representations.isEmpty ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !field.missingFields.isEmpty {
+                    Text(VeraText.format("Skipped empty fields: %@", field.missingFields.joined(separator: ", ")))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
-            if let first = field.representations.first {
+            if let first = field.preferredRepresentation {
                 Button { _ = copy(first.text, field.localizedLabel) } label: {
                     Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)
                 }

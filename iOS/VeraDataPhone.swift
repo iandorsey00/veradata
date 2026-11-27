@@ -4,6 +4,9 @@ import UIKit
 import UniformTypeIdentifiers
 import VeraDataCore
 
+// Select the property wrapper on SDKs that also export a State macro.
+typealias PhoneState<Value> = State<Value>
+
 @main
 struct VeraDataPhone: App {
     var body: some Scene {
@@ -71,12 +74,12 @@ private final class PhoneStore: ObservableObject {
 
 private struct PhoneLibrary: View {
     @StateObject private var store = PhoneStore()
-    @State private var importOpen = false
-    @State private var pending: MobileTransfer?
-    @State private var removeOpen = false
-    @State private var profileID: String?
-    @State private var query = ""
-    @State private var copied = false
+    @PhoneState private var importOpen = false
+    @PhoneState private var pending: MobileTransfer?
+    @PhoneState private var removeOpen = false
+    @PhoneState private var profileID: String?
+    @PhoneState private var query = ""
+    @PhoneState private var copied = false
 
     private var profile: Profile? {
         store.transfer?.profiles.first { $0.id == profileID } ?? store.transfer?.profiles.first
@@ -85,8 +88,9 @@ private struct PhoneLibrary: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let profile {
-                    ProfileRecords(profile: profile, query: query, index: store.index(for: profile), copy: copy)
+                if let profile, let transfer = store.transfer {
+                    ProfileRecords(profile: profile, query: query, index: store.index(for: profile),
+                                   evidenceBytes: transfer.evidenceBytes, copy: copy)
                         .searchable(text: $query, prompt: Text(VeraText.text("Search records or fields")))
                 } else {
                     ContentUnavailableView {
@@ -154,16 +158,25 @@ private struct PhoneLibrary: View {
         .fileImporter(isPresented: $importOpen, allowedContentTypes: [.json]) { result in
             attempt {
                 let transfer = try store.preview(result.get())
-                if store.transfer == nil { try install(transfer) }
+                if store.transfer == nil, transfer.evidenceDocumentCount == 0 { try install(transfer) }
                 else { pending = transfer }
             }
         }
-        .confirmationDialog(VeraText.text("Replace downloaded records?"), isPresented: Binding(
+        .confirmationDialog(VeraText.text(store.transfer == nil ? "Import records and evidence?" : "Replace downloaded records?"), isPresented: Binding(
             get: { pending != nil }, set: { if !$0 { pending = nil } }
         ), titleVisibility: .visible, presenting: pending) { transfer in
-            Button(VeraText.text("Replace Records"), role: .destructive) { attempt { try install(transfer) } }
+            if store.transfer == nil {
+                Button(VeraText.text("Import Transfer")) { attempt { try install(transfer) } }
+            } else {
+                Button(VeraText.text("Replace Records"), role: .destructive) { attempt { try install(transfer) } }
+            }
         } message: { transfer in
-            Text(VeraText.format("This transfer contains %lld profiles and %lld records.", transfer.profiles.count, transfer.recordCount))
+            if transfer.evidenceDocumentCount > 0 {
+                Text(VeraText.format("This transfer contains %lld profiles, %lld records, and %lld evidence documents.",
+                                     transfer.profiles.count, transfer.recordCount, transfer.evidenceDocumentCount))
+            } else {
+                Text(VeraText.format("This transfer contains %lld profiles and %lld records.", transfer.profiles.count, transfer.recordCount))
+            }
         }
         .confirmationDialog(VeraText.text("Remove downloaded records?"), isPresented: $removeOpen, titleVisibility: .visible) {
             Button(VeraText.text("Remove Downloaded Records"), role: .destructive) {
@@ -206,6 +219,7 @@ private struct ProfileRecords: View {
     let profile: Profile
     let query: String
     let index: RetrievalIndex
+    let evidenceBytes: (EvidenceDocument) -> Data?
     let copy: (String) -> Void
 
     var body: some View {
@@ -227,7 +241,7 @@ private struct ProfileRecords: View {
                     recordLink(record)
                 } else {
                     CopyRow(title: result.title, detail: result.subtitle, preview: result.field?.display,
-                            formats: result.representations, preferred: result.preferredFormat) { format in
+                            formats: result.representations, preferred: result.preferredFormat ?? result.field?.preferredRepresentation) { format in
                         let fresh = result.currentValue?.representations(at: .now).first { $0.id == format.id }
                         copy((fresh ?? format).text)
                     }
@@ -243,9 +257,31 @@ private struct ProfileRecords: View {
 
     private func recordLink(_ record: VeraDataCore.Record) -> some View {
         NavigationLink {
-            List(record.values) { field in
-                CopyRow(title: field.localizedLabel, detail: "", preview: field.display, formats: field.representations) {
-                    copy($0.text)
+            List {
+                ForEach(record.values) { field in
+                    CopyRow(title: field.localizedLabel, detail: "", preview: field.display, formats: field.representations,
+                            preferred: field.preferredRepresentation, bulletItems: field.bulletItems) {
+                        copy($0.text)
+                    }
+                }
+                if !record.evidence.isEmpty {
+                    Section(VeraText.text("Evidence")) {
+                        ForEach(record.evidence) { mark in
+                            if let bytes = evidenceBytes(mark.document) {
+                                NavigationLink {
+                                    PhoneEvidenceView(mark: mark, record: record, bytes: bytes)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(mark.document.name)
+                                        Text(mark.fields.keys.sorted().map {
+                                            record.fieldDefinition($0).localizedLabel
+                                        }.joined(separator: ", "))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             .navigationTitle(record.label)
@@ -267,6 +303,7 @@ private struct CopyRow: View {
     let preview: String?
     let formats: [Representation]
     var preferred: Representation? = nil
+    var bulletItems: [String]? = nil
     let copy: (Representation) -> Void
 
     var body: some View {
@@ -274,7 +311,20 @@ private struct CopyRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
                 if !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
-                if let preview = preferred?.text ?? preview { Text(preview).foregroundStyle(.secondary) }
+                if let items = bulletItems {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(items.indices, id: \.self) { index in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("•").accessibilityHidden(true)
+                                Text(items[index])
+                            }
+                        }
+                    }
+                    .padding(.leading, 12)
+                    .foregroundStyle(.secondary)
+                } else if let preview = preferred?.text ?? preview {
+                    Text(preview).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             if let format = preferred ?? formats.first {

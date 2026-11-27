@@ -43,7 +43,11 @@ public enum JSONValue: Equatable, Sendable {
     public var isScalar: Bool { array == nil && object == nil }
 
     public static func parse(_ data: Data) throws -> Self {
-        guard data.count <= maxBytes else { throw DataIssue("JSON exceeds the 16 MiB limit.") }
+        try parse(data, maxBytes: maxBytes)
+    }
+
+    static func parse(_ data: Data, maxBytes: Int) throws -> Self {
+        guard data.count <= maxBytes else { throw DataIssue(maxBytes == Self.maxBytes ? "JSON exceeds the 16 MiB limit." : "JSON exceeds the size limit.") }
         guard let source = String(data: data, encoding: .utf8) else {
             throw DataIssue("Open a UTF-8 JSON file.")
         }
@@ -58,8 +62,12 @@ public enum JSONValue: Equatable, Sendable {
     public static let maxDepth = 64
 
     public func data() throws -> Data {
+        try data(maxBytes: Self.maxBytes)
+    }
+
+    func data(maxBytes: Int) throws -> Data {
         let data = Data((try rendered() + "\n").utf8)
-        guard data.count <= Self.maxBytes else { throw DataIssue("JSON exceeds the 16 MiB limit.") }
+        guard data.count <= maxBytes else { throw DataIssue(maxBytes == Self.maxBytes ? "JSON exceeds the 16 MiB limit." : "JSON exceeds the size limit.") }
         return data
     }
 

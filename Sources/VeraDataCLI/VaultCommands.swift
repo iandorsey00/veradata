@@ -195,11 +195,18 @@ extension CLICommands {
         switch command {
         case "backup":
             try args.validate(0...0)
-            let vault = try load()
-            try emit(vault.data())
+            if let encrypted = store.encrypted {
+                try emit(encrypted.backupData())
+            } else {
+                let vault = try load()
+                try emit(vault.data())
+            }
         case "restore":
             try args.validate(1...1, ["--yes"])
             try args.requireConfirmation()
+            guard store.encrypted == nil else {
+                throw DataIssue("Open an encrypted backup with --vault PATH. To add records from JSON, use import.")
+            }
             let backup = try Vault(data: input(args.positionals[0]))
             try store.restore(backup)
         case "shortcut":

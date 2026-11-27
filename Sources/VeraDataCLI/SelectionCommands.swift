@@ -39,7 +39,7 @@ extension CLICommands {
             case "structured": override = .structured
             default: throw DataIssue("Use --format structured to override the saved format.")
             }
-            let state = try VaultStateStore(vaultURL: store.url).snapshot()
+            let state = try store.stateStore.snapshot()
             guard let vault = try state.vault() else { throw DataIssue("VeraData vault not found.") }
             switch (args.one("--preset"), args.one("--selection")) {
             case (let name?, nil):
@@ -105,7 +105,7 @@ extension CLICommands {
             try args.validate(1...1, ["--selection", "--replace"])
             guard let path = args.one("--selection") else { throw DataIssue("Supply --selection FILE.") }
             let plan = try SelectionPlan(object(path))
-            let state = try VaultStateStore(vaultURL: store.url).snapshot()
+            let state = try store.stateStore.snapshot()
             guard let vault = try state.vault() else { throw DataIssue("VeraData vault not found.") }
             let profile = vault.profiles[try profileIndex(plan.profile, in: vault.profiles)]
             let preset = try ExportPreset(name: args.positionals[0], profile: profile, selection: plan.records, format: plan.format)

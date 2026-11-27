@@ -24,6 +24,44 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "evidenceMark": {
+      "type": "object",
+      "required": ["id", "document", "page", "region", "checkedAt", "fields"],
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "document": {
+          "type": "object",
+          "required": ["digest", "name", "kind"],
+          "properties": {
+            "digest": {"$ref": "#/$defs/evidenceDigest"},
+            "name": {"type": "string", "minLength": 1},
+            "kind": {"enum": ["pdf", "image"]}
+          },
+          "additionalProperties": false
+        },
+        "page": {"type": "integer", "minimum": 0},
+        "region": {
+          "type": "object",
+          "required": ["x", "y", "width", "height"],
+          "properties": {
+            "x": {"type": "number", "minimum": 0, "maximum": 1},
+            "y": {"type": "number", "minimum": 0, "maximum": 1},
+            "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+          },
+          "additionalProperties": false
+        },
+        "checkedAt": {"type": "number", "description": "Seconds since 2001-01-01T00:00:00Z."},
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {"$ref": "#/$defs/evidenceDigest"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "settings": {
       "type": "object",
       "required": [
@@ -99,6 +137,10 @@
             "minLength": 1
           }
         },
+        "evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/evidenceMark"}
+        },
         "aliases": {
           "type": "object",
           "propertyNames": {
@@ -171,6 +213,9 @@
             "properties": {
               "fields": {
                 "properties": {
+                  "recipient": {
+                    "type": ["string", "null"]
+                  },
                   "line1": {
                     "type": [
                       "string",
@@ -218,6 +263,7 @@
                       null,
                       "",
                       "Residential",
+                      "Work",
                       "Mailing",
                       "Billing",
                       "Shipping",

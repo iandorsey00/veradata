@@ -50,6 +50,7 @@ public struct StateDifference: Sendable {
                 if left?.label != right?.label { fields.insert("@label") }
                 if left?.aliases != right?.aliases { fields.insert("@aliases") }
                 if left?.kind != right?.kind { fields.insert("@kind") }
+                if (left?.evidence ?? []) != (right?.evidence ?? []) { fields.insert("@evidence") }
                 let key = profile + "/" + id
                 records.append(key)
                 entries.append(Self.entry("record/" + key, Self.recordValues(left, fields), Self.recordValues(right, fields), fields.sorted()))
@@ -75,6 +76,7 @@ public struct StateDifference: Sendable {
         if fields.contains("@label") { values["@label"] = .string(record.label) }
         if fields.contains("@aliases") { values["@aliases"] = .object(record.aliases.mapValues(JSONValue.string)) }
         if fields.contains("@kind") { values["@kind"] = .string(record.kind.rawValue) }
+        if fields.contains("@evidence") { values["@evidence"] = .string(String(record.evidence.count)) }
         return .object(values)
     }
 

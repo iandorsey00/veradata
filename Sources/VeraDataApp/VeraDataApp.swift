@@ -24,9 +24,18 @@ struct VeraDataApp: App {
                     .keyboardShortcut("n")
                     .disabled(!state.canEdit)
                 Divider()
+                Button("New Encrypted Vault…") { state.createEncryptedVault(copyCurrent: false) }.disabled(!state.canSwitchVault)
+                Button("Open Encrypted Vault…", action: state.chooseEncryptedVault).disabled(!state.canSwitchVault)
+                if state.canEdit && !state.isEncrypted {
+                    Button("Encrypt Current Vault…") { state.createEncryptedVault(copyCurrent: true) }.disabled(!state.canSwitchVault)
+                }
+                if state.isEncrypted, state.canEdit {
+                    Button("Lock Vault", action: state.lockVault).disabled(!state.canSwitchVault)
+                }
+                Divider()
                 Button("Back Up Vault…", action: state.backup).disabled(!state.canEdit)
-                Button("Restore Vault…", action: state.chooseRestore)
-                Button("Revision History…") { state.historyOpen = true }
+                Button("Restore Vault…", action: state.chooseRestore).disabled(!state.canEdit || state.isEncrypted)
+                Button("Revision History…") { state.historyOpen = true }.disabled(!state.canEdit)
                 Button("Import Records…", action: state.chooseImport).disabled(!state.canEdit)
                 Button("Export Data…") { state.openExport() }.disabled(!state.canExportData)
                 Button("Export for iPhone…") { state.phoneExportOpen = true }.disabled(!state.canExportToPhone)
@@ -63,6 +72,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var profileID = ""
     @Published var recordID: String?
     @Published var editor: RecordDraft?
+    @Published var evidenceRecord: Record?
     @Published var problem: String?
     @Published var status: String?
     @Published var restoreCandidate: Vault?
@@ -76,7 +86,16 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
 
     private(set) var index = RetrievalIndex(records: [])
     private var store: VaultFile
-    var stateStore: VaultStateStore { VaultStateStore(vaultURL: store.url) }
+    var stateStore: VaultStateStore { store.stateStore }
+    var evidenceFiles: EvidenceFileStore { EvidenceFileStore(vaultURL: store.url, encrypted: store.encrypted) }
+    var isEncrypted: Bool { EncryptedVault.isEncryptedURL(store.url) }
+    var vaultFilename: String { store.url.lastPathComponent }
+    var canSwitchVault: Bool {
+        editor == nil && evidenceRecord == nil && importRequest == nil && exportRequest == nil &&
+            restoreCandidate == nil && !phoneExportOpen && !historyOpen
+    }
+    private static let workingVaultPreference = "EncryptedWorkingVaultPath"
+    private static let encryptedType = UTType(exportedAs: "com.iandorsey.veradata.vault", conformingTo: .data)
     private var hotkey: GlobalShortcut?
     private var searchPanel: NSPanel?
     private var returnApp: NSRunningApplication?
@@ -85,13 +104,20 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     weak var mainWindow: NSWindow?
 
     override init() {
-        store = VaultFile(url: VaultFile.defaultURL)
+        let custom = ProcessInfo.processInfo.environment["VERADATA_VAULT_PATH"]
+        let saved = UserDefaults.standard.string(forKey: Self.workingVaultPreference)
+        let location = custom == nil ? saved.map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL : VaultFile.defaultURL
+        store = VaultFile(url: location)
         super.init()
-        do {
-            if let saved = try store.load() { vault = saved }
-        } catch {
+        if isEncrypted {
             canEdit = false
-            problem = VeraText.format("The local vault could not be opened. Its file was preserved. %@", error.localizedDescription)
+        } else {
+            do {
+                if let saved = try store.load() { vault = saved }
+            } catch {
+                canEdit = false
+                problem = VeraText.format("The local vault could not be opened. Its file was preserved. %@", error.localizedDescription)
+            }
         }
         selectProfile(vault.profiles[0].id)
         hotkey = GlobalShortcut { [weak self] in self?.openSearch() }
@@ -142,13 +168,26 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         }
         var updated = vault
         if let position = profile.records.firstIndex(where: { $0.id == record.id }) {
-            updated.profiles[profileIndex].records[position] = record
+            var edited = record
+            edited.evidence = updated.profiles[profileIndex].records[position].evidence
+            updated.profiles[profileIndex].records[position] = edited
         } else {
             updated.profiles[profileIndex].records.append(record)
         }
         try persist(updated)
         recordID = record.id
         showStatus(VeraText.text("Your changes have been saved."))
+    }
+
+    func saveEvidence(_ evidence: [EvidenceMark], for record: Record, attachment: VaultAttachment?) throws {
+        guard let profileIndex = vault.profiles.firstIndex(where: { $0.id == profileID }),
+              let recordIndex = vault.profiles[profileIndex].records.firstIndex(where: { $0.id == record.id }),
+              vault.profiles[profileIndex].records[recordIndex] == record else { throw VaultStateConflict.stale }
+        var updated = vault
+        updated.profiles[profileIndex].records[recordIndex].evidence = evidence
+        try persist(updated, attachment: attachment)
+        evidenceRecord = nil
+        showStatus(VeraText.text("Evidence updated."))
     }
 
     func deleteRecord(_ id: String) {
@@ -180,7 +219,110 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+    func chooseEncryptedVault() {
+        guard canSwitchVault else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [Self.encryptedType]
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openEncryptedVault(url)
+    }
+
+    func createEncryptedVault(copyCurrent: Bool) {
+        guard canSwitchVault, !copyCurrent || canEdit else { return }
+        let panel = NSSavePanel()
+        panel.title = VeraText.text(copyCurrent ? "Encrypt Current Vault" : "New Encrypted Vault")
+        panel.allowedContentTypes = [Self.encryptedType]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "Database.veradata"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let password = requestVaultPassword(creating: true, filename: url.lastPathComponent) else { return }
+        do {
+            let encrypted = try EncryptedVault.create(at: url, password: password, copying: copyCurrent ? stateStore : nil,
+                                                      initialVault: copyCurrent ? vault : Vault(profiles: [Profile(name: VeraText.text("Personal"))]))
+            try adopt(encrypted)
+            showStatus(VeraText.text("Encrypted vault created."))
+        } catch { problem = error.localizedDescription }
+    }
+
+    func unlockVault() {
+        guard isEncrypted, canSwitchVault else { return }
+        openEncryptedVault(store.url)
+    }
+
+    private func openEncryptedVault(_ url: URL) {
+        guard let password = requestVaultPassword(creating: false, filename: url.lastPathComponent) else { return }
+        do { try adopt(EncryptedVault.open(url, password: password)) }
+        catch { problem = error.localizedDescription }
+    }
+
+    private func adopt(_ encrypted: EncryptedVault) throws {
+        var next = VaultFile(url: encrypted.url, encrypted: encrypted)
+        guard let opened = try next.load() else { throw DataIssue("The encrypted vault has no records database.") }
+        closeSearch(returnToOrigin: false)
+        status = nil
+        store = next
+        vault = opened
+        selectProfile(opened.profiles[0].id)
+        canEdit = true
+        reloadPending = false
+        UserDefaults.standard.set(encrypted.url.path, forKey: Self.workingVaultPreference)
+        registerShortcut()
+    }
+
+    func lockVault() {
+        guard isEncrypted, canSwitchVault else { return }
+        closeSearch(returnToOrigin: false)
+        status = nil
+        store = VaultFile(url: store.url)
+        vault = Vault(profiles: [Profile(name: VeraText.text("Personal"))])
+        selectProfile(vault.profiles[0].id)
+        canEdit = false
+        reloadPending = false
+        registerShortcut()
+    }
+
+    private func requestVaultPassword(creating: Bool, filename: String) -> String? {
+        let panel = NSAlert()
+        panel.messageText = VeraText.text(creating ? "Set Vault Password" : "Unlock Vault")
+        panel.informativeText = creating
+            ? VeraText.text("Use at least 12 characters and save the password somewhere safe. VeraData cannot recover it.")
+            : filename
+        let password = NSSecureTextField()
+        password.placeholderString = VeraText.text("Vault password")
+        let confirmation = NSSecureTextField()
+        confirmation.placeholderString = VeraText.text("Confirm password")
+        let inputs = NSStackView(views: creating ? [password, confirmation] : [password])
+        inputs.orientation = .vertical
+        inputs.alignment = .width
+        inputs.spacing = 8
+        inputs.frame = CGRect(x: 0, y: 0, width: 270, height: creating ? 58 : 25)
+        panel.accessoryView = inputs
+        panel.window.initialFirstResponder = password
+        panel.addButton(withTitle: VeraText.text(creating ? "Create" : "Unlock"))
+        panel.addButton(withTitle: VeraText.text("Cancel"))
+        guard panel.runModal() == .alertFirstButtonReturn else { return nil }
+        guard !creating || password.stringValue == confirmation.stringValue else {
+            problem = VeraText.text("The vault passwords do not match.")
+            return nil
+        }
+        return password.stringValue
+    }
+
     func backup() {
+        if let encrypted = store.encrypted {
+            let panel = NSSavePanel()
+            panel.title = VeraText.text("Back Up VeraData")
+            panel.allowedContentTypes = [Self.encryptedType]
+            let date = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash))
+            panel.nameFieldStringValue = store.url.deletingPathExtension().lastPathComponent + "-Backup-" + date + ".veradata"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try encrypted.backup(to: url)
+                showStatus(VeraText.text("Backup saved."))
+            } catch { problem = error.localizedDescription }
+            return
+        }
         let panel = NSSavePanel()
         panel.title = VeraText.text("Back Up VeraData")
         panel.prompt = VeraText.text("Save Backup")
@@ -230,6 +372,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func chooseRestore() {
+        if isEncrypted { chooseEncryptedVault(); return }
         let panel = NSOpenPanel()
         panel.title = VeraText.text("Restore VeraData")
         panel.prompt = VeraText.text("Review Backup")
@@ -253,7 +396,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         do {
             let snapshot = try stateStore.snapshot()
             guard try snapshot.vault() == vault else { throw VaultStateConflict.stale }
-            exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url),
+            exportRequest = ExportRequest(profile: profile, recordID: recordID, presets: ExportPresetStore(vaultURL: store.url, encrypted: store.encrypted),
                                           token: snapshot.token)
         } catch { problem = error.localizedDescription }
     }
@@ -265,9 +408,10 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func refreshExternalChanges() {
+        guard canEdit else { return }
         do {
             guard try store.hasExternalChanges() else { reloadPending = false; return }
-            if editor != nil || importRequest != nil || exportRequest != nil || restoreCandidate != nil || phoneExportOpen {
+            if editor != nil || evidenceRecord != nil || importRequest != nil || exportRequest != nil || restoreCandidate != nil || phoneExportOpen {
                 reloadPending = true
             } else {
                 try reloadVault()
@@ -311,9 +455,10 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         } catch { problem = error.localizedDescription }
     }
 
-    func exportToPhone(_ selection: [Profile.ID: Set<Record.ID>]) {
+    func exportToPhone(_ selection: [Profile.ID: Set<Record.ID>], evidence: Set<MobileTransfer.EvidencePick>) {
         do {
-            let data = try MobileTransfer(vault: vault, selection: selection).data()
+            let data = try MobileTransfer(vault: vault, selection: selection, evidence: evidence,
+                                          readEvidence: evidenceFiles.read).data()
             let panel = NSSavePanel()
             panel.title = VeraText.text("Export for iPhone")
             panel.prompt = VeraText.text("Export")
@@ -352,9 +497,9 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
-    private func persist(_ updated: Vault) throws {
+    private func persist(_ updated: Vault, attachment: VaultAttachment? = nil) throws {
         guard canEdit else { throw DataIssue("Recover the local vault before saving changes.") }
-        try store.save(updated)
+        try store.save(updated, attachment: attachment)
         index = RetrievalIndex(records: updated.profiles.first { $0.id == profileID }?.records ?? [])
         vault = updated
     }
@@ -374,11 +519,13 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func registerShortcut() {
-        let registered = hotkey?.register(vault.shortcut) == true
-        shortcutAvailable = registered && vault.shortcut != .off
+        let shortcut = canEdit ? vault.shortcut : .off
+        let registered = hotkey?.register(shortcut) == true
+        shortcutAvailable = registered && shortcut != .off
     }
 
     func openSearch(scopedTo id: String? = nil) {
+        guard canEdit else { return }
         if let visible = searchPanel, visible.isVisible {
             visible.makeKeyAndOrderFront(nil)
             return

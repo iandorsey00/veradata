@@ -2,6 +2,8 @@
 
 VeraData is a local-first macOS utility for keeping reusable information close at hand. Save a phone number, address, or employment record once, then find and copy the detail a form asks for. A job can stay selected while you look up its start date, title, and responsibilities.
 
+![VeraData on macOS showing a fictional employment record with controls for copying individual fields and formatting the start date.](docs/portfolio/screenshots/01-employment-record.png)
+
 ## Try it
 
 Build on macOS 14 or later with Swift 6 and the macOS SDK. The build has no third-party dependencies.
@@ -20,17 +22,46 @@ This creates an ad-hoc-signed app for local use. Leave VeraData running to use i
 
 You can also invoke search with **⌘K** inside VeraData. If the global shortcut conflicts with another app, choose an alternative in **Records › Global Search Shortcut**.
 
+## Encrypted working vaults
+
+- Choose **File › Encrypt Current Vault…** to copy an existing vault, its presets, and its evidence into one encrypted file. Start empty with **File › New Encrypted Vault…**. The suggested name is `Database.veradata`. Use separate names such as `Work.veradata` and `Project-7.veradata` to keep independent vaults.
+- Save the file in a folder you choose, including iCloud Drive or a folder managed by Google Drive. Use **File › Open Encrypted Vault…** to switch files, and **Lock Vault** to clear the open vault from the app. Keep the password in a safe place. VeraData cannot recover it.
+- Work on one device at a time and wait for its provider to finish syncing before opening the vault elsewhere. VeraData rejects stale saves and blocks writes when macOS reports an unresolved conflict. If your provider creates a separate conflict copy, preserve both files before reviewing them.
+- Use **File › Back Up Vault…** for a separate encrypted copy. Test a backup by opening a copy under a fresh filename. The original JSON vault and its older revision history remain available after migration. New revisions stay inside the encrypted vault.
+
 ## Everyday use
 
 - **Store details.** Contact, address, employment, and education editors provide suggested fields. Add a custom field for anything else. The field state distinguishes omitted, unknown, and present values. If you enter a month or year only, VeraData preserves that precision.
 - **Find a field.** Search by employer, job title, field name, or familiar names such as `phone` and `job duties`. Under **Search Shortcuts** in the editor, you can add exact aliases such as `;ph`.
 - **Work through several jobs.** **Search This Record** pins a job in Quick Search. The palette remembers its scope until you switch records or choose **Search All**. In the main window, use **⌘[** and **⌘]** to step through records of the same type.
-- **Choose a format.** The **Format** menu offers available date components, phone digits, and responsibility bullets. The phone options remove punctuation without inferring a dialing country. For addresses that require a country-specific layout, enter the intended postal lines in **Mailing lines**.
+- **Choose a format.** The **Format** menu offers available date components, phone digits, and plain text for lists. Lists display and copy with bullets by default. The phone options remove punctuation without inferring a dialing country. For an international mailing address, enter the complete address in **Mailing lines** using the destination’s spelling and line order. The automatic summary uses a U.S.-style order.
 - **Copy today or now.** In Quick Search, type `today` for the date on your Mac or `timestamp` for the current local time with a UTC offset. The **Format** menu also offers a localized date, UTC time, and Unix seconds where applicable.
 - **Find saved coordinates.** In an address editor, choose **Add Coordinates** and enter decimal latitude and longitude. Search for the address name and `coordinates` to copy the pair for a map or form.
 - **Keep address history.** Add a new address record when you move. Enter the previous address’s **Through** date so it appears as historical. Address use and date history are stored independently.
 - **Share selected data.** Choose **File › Export Data** to select fields and individual list items across the active profile. Arrange the records, then review the exact JSON before saving. Use a record’s **Export Selected Fields** command for the original single-record flat JSON format.
-- **Back up the vault.** Choose **File › Back Up Vault** for all profiles, values, aliases, and the global shortcut. **File › Restore Vault** validates a backup and asks before replacing the current vault. For routine recovery, **File › Revision History** lets you inspect and restore an earlier vault and its presets. History can retain deleted data. The vault and exports contain readable JSON.
+- **Back up the vault.** Choose **File › Back Up Vault** to back up all profiles and settings. For a JSON vault, **File › Restore Vault** validates a backup and asks before replacing the current vault. Open an encrypted backup as a separate file. For routine recovery, **File › Revision History** lets you inspect and restore an earlier vault and its presets. History can retain deleted data. Plain JSON vaults and record exports contain readable JSON.
+
+### Reuse address fields in Mailing lines
+
+Enter mailing text as written, or reference fields from the same address with stable keys such as `{{line1}}`. Arrange the lines in the destination’s preferred order.
+
+```text
+{{recipient}}
+{{streetAddress}}
+{{unit}}
+{{city}}, {{region}} {{postalCode}}
+{{country}}
+```
+
+Fill **Recipient name** with the person or organization that should receive the mail. `{{name}}` also works. `{{streetAddress}}` uses **Street address**, and `{{unit}}` or `{{unitNumber}}` uses **Unit or apartment**. The keys `{{line1}}` and `{{line2}}` also work.
+
+Lines whose placeholders are all empty are skipped. The Mac record view lists which fields were skipped below the address. The app displays and copies the rendered address, and the **Format** menu offers **As stored** for the template. JSON exports keep the template as entered so selecting **Mailing lines** does not implicitly include unselected fields.
+
+## Check fields against evidence
+
+Open a record and choose **Evidence… → Attach PDF or Image…**. Draw one box around the supporting passage, check the fields it actually shows, then choose **Mark as Checked**. For an address block, **Select Address Fields** selects populated street, unit, city, region, and postal code fields together. Add country or mailing lines individually if the document shows them. A later edit to one field makes that field **Needs review**. Reopen the mark to compare it again.
+
+VeraData keeps a private local copy of the source. Evidence stays out of résumé, structured, and flat exports. The Mac app can include explicitly chosen evidence in an iPhone transfer. For a JSON vault, include the adjacent `vault.json.evidence` folder when making an independent backup of evidence. Encrypted vault backups already include the evidence. [Evidence storage and recovery](docs/architecture.md#field-evidence)
 
 ## Import records
 
@@ -79,15 +110,15 @@ The VeraData CLI uses the desktop app’s vault by default. Preset names are cas
 
 The read-only companion lives in this repository and shares the Mac app’s validation, search, and field formatting. It requires iOS 17 or later. To build locally, open [iOS/VeraData.xcodeproj](iOS/VeraData.xcodeproj) in the full Xcode app and select the **VeraDataPhone** scheme. Choose a simulator, or choose a signing team and your iPhone for a device build.
 
-1. On Mac, choose **File › Export for iPhone** and check the records you want on your phone. All fields in each checked record are included.
+1. On Mac, choose **File › Export for iPhone** and check the records you want. To carry evidence, check individual documents or choose **Select All Evidence for Checked Records**. The transfer contains the full original PDFs or images, including areas outside a mark.
 2. Transfer the JSON file to your iPhone and select it under **Import Transfer**. Future imports replace the downloaded snapshot after confirmation.
-3. Switch profiles, search in either language, then tap Copy by the value you want. Use the format menu when a field has multiple representations.
+3. Open a record, and tap a document in **Evidence** to view its marked page. Pinch to zoom. Search and copy fields as usual.
 
 The interface follows the app’s system language in English or Simplified Chinese. Record contents stay in the language you entered. Imported records are available offline.
 
 ### iPhone 使用方式
 
-在 Mac 上选择 **文件 › 导出到 iPhone**，勾选要携带的记录。将 JSON 文件传到 iPhone 后，在 VeraData 中选择 **导入传输文件**。导入后可离线搜索并复制字段。界面支持英语和简体中文，已保存的内容保留原文。
+在 Mac 上选择 **文件 › 导出到 iPhone**，勾选要携带的记录。将 JSON 文件传到 iPhone 后，在 VeraData 中选择 **导入传输文件**。导入后可离线搜索并复制字段。界面支持英语和简体中文，已保存的内容保留原文。可逐个选择证据文件，或点击 **全选所选记录的证据**。在 iPhone 上打开记录，在 **证据** 下点按文件可查看原始 PDF 或图像的标记区域。
 
 ## Development
 
@@ -99,4 +130,4 @@ python3 scripts/check-cli.py ./scripts/veradata
 
 See the [data specification](docs/specification.md), [JSON Schema](schema/vault-v1.schema.json), [fictional example](Sources/VeraDataApp/Resources/demo.json), and [architecture, privacy, and recovery guide](docs/architecture.md).
 
-Browser autofill and document evidence are future work. Licensed under [MIT](LICENSE).
+Browser autofill is future work. Licensed under [MIT](LICENSE).

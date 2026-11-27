@@ -9,6 +9,7 @@ struct VeraDataCLI {
         Usage: veradata COMMAND [OPTIONS]
 
         Vault and records:
+          vault encrypt DESTINATION.veradata
           profiles
           profile create NAME [--id ID]
           profile rename PROFILE NAME
@@ -50,7 +51,8 @@ struct VeraDataCLI {
           history prune --keep COUNT [--apply]
           history retention [--keep COUNT --apply]
 
-        Data commands accept --vault PATH. Profile-scoped commands accept --profile ID or NAME.
+        Data commands accept --vault PATH. For an encrypted file, the password is prompted on the terminal.
+        Profile-scoped commands accept --profile ID or NAME.
         With no --vault, commands use the desktop app's vault. With no --profile, use the first profile.
         FILE may be - for stdin. JSON and selected values go to stdout. Diagnostics go to stderr.
         Transaction previews redact values. --json-errors writes structured diagnostics to stderr.
@@ -80,15 +82,29 @@ struct VeraDataCLI {
             return
         }
         var remaining = Array(arguments.dropFirst())
-        let action = ["profile", "record", "preset", "history"].contains(command) && remaining.first?.hasPrefix("-") == false
+        let action = ["profile", "record", "preset", "history", "vault"].contains(command) && remaining.first?.hasPrefix("-") == false
             ? remaining.removeFirst() : ""
         let args = try CLIArguments(remaining)
         if args.has("--help") || args.has("-h") {
             print(usage)
             return
         }
-        var cli = CLICommands(vaultURL: args.one("--vault").map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL)
+        let path = args.one("--vault").map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL
+        let encrypted: EncryptedVault? = if command != "current", EncryptedVault.isEncryptedURL(path) {
+            try EncryptedVault.open(path, password: vaultPassword("Vault password: "))
+        } else { nil }
+        var cli = CLICommands(vaultURL: path, encrypted: encrypted)
         switch command {
+        case "vault" where action == "encrypt":
+            try args.validate(1...1)
+            let target = URL(fileURLWithPath: args.positionals[0])
+            let password = try vaultPassword("New vault password: ")
+            guard try vaultPassword("Confirm new vault password: ") == password else {
+                throw DataIssue("The vault passwords do not match.")
+            }
+            _ = try EncryptedVault.create(at: target, password: password, copying: cli.store.stateStore)
+            try cli.emit(.object(["path": .string(target.path)]))
+
         case "profiles", "profile": try cli.profiles(command == "profiles" ? "list" : action, args)
         case "records", "record": try cli.records(command == "records" ? "list" : action, args)
         case "import": try cli.importRecords(args)
@@ -102,15 +118,45 @@ struct VeraDataCLI {
         default: throw DataIssue("Unknown command. See --help.")
         }
     }
+    private static func vaultPassword(_ prompt: String) throws -> String {
+        var buffer = [CChar](repeating: 0, count: 4097)
+        let useStdin = isatty(STDIN_FILENO) == 1
+        var terminal = termios()
+        if useStdin {
+            guard tcgetattr(STDIN_FILENO, &terminal) == 0 else {
+                throw DataIssue("Unable to disable terminal echo for the vault password.")
+            }
+            var hidden = terminal
+            hidden.c_lflag &= ~tcflag_t(ECHO)
+            guard tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden) == 0 else {
+                throw DataIssue("Unable to disable terminal echo for the vault password.")
+            }
+        }
+        defer {
+            if useStdin {
+                tcsetattr(STDIN_FILENO, TCSANOW, &terminal)
+                try? FileHandle.standardError.write(contentsOf: Data([10]))
+            }
+        }
+        if useStdin { try FileHandle.standardError.write(contentsOf: Data(prompt.utf8)) }
+        return try buffer.withUnsafeMutableBufferPointer { storage in
+            defer { _ = memset_s(storage.baseAddress, storage.count, 0, storage.count) }
+            guard let text = readpassphrase(prompt, storage.baseAddress, storage.count, useStdin ? RPP_STDIN : RPP_REQUIRE_TTY),
+                  let password = String(validatingUTF8: text), !password.isEmpty else {
+                throw DataIssue("Enter the vault password in an interactive terminal.")
+            }
+            return password
+        }
+    }
 }
 
 struct CLICommands {
     var store: VaultFile
     let presetStore: ExportPresetStore
 
-    init(vaultURL: URL) {
-        store = VaultFile(url: vaultURL)
-        presetStore = ExportPresetStore(vaultURL: vaultURL)
+    init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
+        store = VaultFile(url: vaultURL, encrypted: encrypted)
+        presetStore = ExportPresetStore(vaultURL: vaultURL, encrypted: encrypted)
     }
 
     mutating func load() throws -> Vault {

@@ -22,6 +22,67 @@ struct VeraDataTests {
         #expect(duplicateNames[0].subtitle != duplicateNames[1].subtitle)
     }
 
+    @Test func workAddressPreservesLocallyFormattedPostalLines() throws {
+        let lines = "示例市示例区\n示例路一号"
+        let address = Record(id: "work", kind: .address, label: "Fictional workplace", fields: [
+            "use": .string("Work"), "postalCode": .string("0012 AB"), "formatted": .string(lines),
+        ])
+        let vault = Vault(profiles: [Profile(id: "demo", name: "Fictional", records: [address])])
+        let stored = try #require(Vault(data: vault.data()).profiles.first?.records.first)
+        #expect(stored.fields["use"] == .string("Work"))
+        #expect(stored.fields["postalCode"] == .string("0012 AB"))
+        #expect(stored.values.first { $0.path == ["formatted"] }?.display == lines)
+
+        let transfer = try MobileTransfer(vault: vault, selection: ["demo": ["work"]])
+        #expect(try MobileTransfer(data: transfer.data()).profiles[0].records[0] == stored)
+    }
+
+    @Test func mailingLinesRenderWithinTheRecordAndKeepTheStoredTemplate() throws {
+        let template = "{{line1}}\n{{line2}}\n{{city}}, {{region}} {{postalCode}}\n{{country}}"
+        var address = Record(id: "office", kind: .address, label: "Fictional address", fields: [
+            "formatted": .string(template), "line1": .string("示例路 4"), "city": .string("示例市"),
+            "postalCode": .string("00122"), "country": .string("{{line1}}"),
+        ])
+        let field = try #require(address.values.first { $0.path == ["formatted"] })
+        #expect(field.display == "示例路 4\n示例市, 00122\n{{line1}}")
+        #expect(field.representations.last?.text == template)
+        #expect(address.projection(keys: ["formatted"]).object?["formatted"] == .string(template))
+        let doc = EvidenceFileStore.document(for: Data("fixture".utf8), name: "Fictional.pdf", kind: .pdf)
+        let mark = try EvidenceMark(document: doc, page: 0, region: EvidenceRegion(x: 0, y: 0, width: 1, height: 1),
+                                    record: address, keys: ["formatted"])
+        #expect(mark.matches("formatted", in: address))
+        address.fields["postalCode"] = nil
+        #expect(address.renderedMailingLines == "示例路 4\n示例市\n{{line1}}")
+        #expect(!mark.matches("formatted", in: address))
+    }
+
+    @Test func mailingLinesIncludeAnExplicitRecipientAndOptionalUnit() throws {
+        var address = Record(id: "office", kind: .address, label: "Fictional office", fields: [
+            "recipient": .string("Example Company"), "line1": .string("4 Example Street"),
+            "line2": .string("Suite 12"), "city": .string("Example City"),
+            "formatted": .string("{{name}}\n{{streetAddress}}\n{{unitNumber}}\n{{city}}"),
+        ])
+        let vault = Vault(profiles: [Profile(id: "demo", name: "Fictional", records: [address])])
+        let stored = try #require(Vault(data: vault.data()).profiles.first?.records.first)
+        #expect(stored.renderedMailingLines == "Example Company\n4 Example Street\nSuite 12\nExample City")
+        address.fields["recipient"] = nil
+        address.fields["line2"] = .null
+        #expect(address.renderedMailingLines == "4 Example Street\nExample City")
+        let mailing = try #require(address.values.first { $0.path == ["formatted"] })
+        #expect(mailing.missingFields == [
+            address.fieldDefinition("recipient").localizedLabel, address.fieldDefinition("line2").localizedLabel,
+        ])
+        address.fields["line2"] = nil
+        address.fields["unitNumber"] = .string("Suite 07")
+        #expect(address.renderedMailingLines == "4 Example Street\nSuite 07\nExample City")
+        address.fields["unitNumber"] = nil
+        address.fields["name"] = .string("Existing recipient")
+        #expect(address.renderedMailingLines == "Existing recipient\n4 Example Street\nExample City")
+        address.fields["formatted"] = .string("{{streetAddress}}\n{{unit}}")
+        address.fields["line2"] = .string("Apt 03")
+        #expect(address.renderedMailingLines == "4 Example Street\nApt 03")
+    }
+
     @Test func testStrictJSONPreservesNumericLexemesAndUntrustedText() throws {
         let raw = #"{"huge":900719925474099312345678901234567890,"decimal":1.000000000000000000002e-500,"emoji":"\uD83D\uDD11","code":"000184","empty":"","unknown":null,"literal":"{{field}} <tag>","array":[-0,true,false]}"#
         let value = try JSONValue.parse(Data(raw.utf8))
@@ -83,6 +144,10 @@ struct VeraDataTests {
         #expect(yearOnly.representations.map(\.label) == ["As stored", "Year"])
         let duties = try #require(firstRole.values.first { $0.label == "Responsibilities" })
         #expect(duties.representations[1].text.hasPrefix("• Maintain"))
+        #expect(duties.display.hasPrefix("• Maintain"))
+        #expect(duties.bulletItems?.first?.hasPrefix("Maintain") == true)
+        #expect(duties.preferredRepresentation?.label == "Bullet list")
+        #expect(duties.representations.first?.label == "Plain text")
     }
 
     @Test func testSearchScopesFiveJobsAndFindsRepresentations() throws {

@@ -117,7 +117,9 @@ public struct RecordImportReview: Sendable {
             case .skip: continue
             case .add:
                 if ids.insert(record.id).inserted {
-                    updated.records.append(record)
+                    var copy = record
+                    copy.evidence = []
+                    updated.records.append(copy)
                 } else {
                     let copy = Record(kind: record.kind, label: record.label, fields: record.fields, aliases: record.aliases)
                     ids.insert(copy.id)

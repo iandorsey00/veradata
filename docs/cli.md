@@ -43,6 +43,8 @@ JSON
 
 Search returns metadata with record IDs, field paths, and representation labels. Use `--values` to include matched values, or `get` to retrieve just one. `get` accepts exact field keys, search paths, and stored aliases. Add `--copy` to copy the result to the macOS clipboard. `current today` and `current timestamp` use the Mac’s clock.
 
+To render a saved **Mailing lines** template from the terminal, use `get RECORD formatted --representation 'Rendered address'`. The raw `formatted` field and selective JSON exports preserve the template.
+
 Use `record update --fields FILE` to merge a JSON object into a record. Arrays, numbers, and explicit null values keep their types. Use `--set KEY=TEXT` for text, or repeat `--unset KEY` to omit fields entirely. For values you prefer to keep out of shell history, use `--fields FILE` or `--fields -`. Supply `--aliases FILE` to replace the complete alias map with a JSON object such as `{";mail":"email"}`. Removing a field also removes its aliases unless you provide a new map.
 
 `profile rename PROFILE NAME` changes the profile name while keeping its ID. `profile delete PROFILE --yes` and `record delete RECORD --yes` explicitly confirm deletion. Keep at least one profile. `shortcut` reads the saved hotkey setting. Supply `space`, `j`, `k`, or `off` to change it. The app reloads terminal changes after any open edit or review sheet closes.
@@ -98,7 +100,7 @@ VeraFlow accepts the default résumé export directly on stdin. The `structured`
 ./scripts/veradata restore "$work/backup.json" --vault "$work/restored.json" --yes
 ```
 
-Repeat `--record` for specific iPhone records or use `--all` for every record in the selected profile. To select records across profiles, repeat `--pick PROFILE_ID:RECORD_ID`. A backup contains every profile and the shortcut setting. Back up the vault’s adjacent `vault.json.export-presets` directory separately to retain presets. Treat backup and export files as readable personal data.
+Repeat `--record` for specific iPhone records or use `--all` for every record in the selected profile. To select records across profiles, repeat `--pick PROFILE_ID:RECORD_ID`. The CLI phone export includes records only. To include evidence, select documents in the Mac app’s **Export for iPhone** dialog. A backup contains every profile and the shortcut setting. Back up the vault’s adjacent `vault.json.export-presets` directory separately to retain presets. Treat backup and export files as readable personal data.
 
 To roll back the app, build the previous release tag in a separate checkout. The vault still uses schema version 1. Older builds may reject newer preset versions. Recover any pending transaction in the current version before rolling back, and retain a copy of the preset directory. Avoid running mixed versions against the same vault.
 
@@ -141,3 +143,13 @@ Each entry describes a mutation and stores the state immediately **before** it. 
 The default retention is 30 revisions. `history retention` reports the configured limit. To change it, use `history retention --keep COUNT --apply`. To prune now without changing the ongoing limit, use `history prune --keep COUNT --apply`. VeraData retains a readable recovery revision if the other retained entries cannot be restored. Review a prune before adding `--apply`.
 
 History is local and may still contain values removed from your vault. Prune it explicitly when appropriate and keep an independent backup. Existing vaults and presets load in place. Whole-field choices from older presets also track current values. Selective lists retain their fingerprint checks and need review when the list changes. Close and reopen an outstanding app edit or export review if it conflicts with a CLI update.
+
+
+## Work with an encrypted vault
+
+```sh
+./scripts/veradata vault encrypt "$HOME/Documents/Work.veradata" --vault /path/to/vault.json
+./scripts/veradata profiles --vault "$HOME/Documents/Work.veradata"
+```
+
+The terminal prompts for the vault password without echoing it. Pass the encrypted path explicitly for CLI commands. Standard input stays available for imports and change sets. The existing `backup` command emits encrypted bytes for a `.veradata` vault. Use the Mac app’s **Back Up Vault…** to write an encrypted backup directly to a new file, or redirect the CLI output to a fresh file with restrictive permissions. To recover, open an encrypted backup as its own vault.

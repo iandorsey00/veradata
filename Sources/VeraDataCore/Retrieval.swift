@@ -14,6 +14,12 @@ public struct RecordValue: Identifiable, Equatable, Sendable {
     public let representations: [Representation]
     public let aliases: [String]
     public var localizesLabel = false
+    public var missingFields: [String] = []
+
+    public var bulletItems: [String]? {
+        guard representations.contains(where: { $0.label == "Bullet list" }) else { return nil }
+        return value.array?.compactMap(\.string)
+    }
     public var localizedLabel: String { localizesLabel ? VeraText.text(label) : label }
 
     public var id: String {
@@ -23,18 +29,36 @@ public struct RecordValue: Identifiable, Equatable, Sendable {
         }.joined(separator: "/")
     }
 
+    public var preferredRepresentation: Representation? {
+        representations.first { $0.label == "Bullet list" } ?? representations.first
+    }
+
     public var display: String {
         if value == .null { return VeraText.text("Unknown") }
-        if representations.first?.text.isEmpty == true { return VeraText.text("Empty text") }
-        return representations.first?.text ?? VeraText.text(value.array != nil ? "Empty list" : "Empty object")
+        if preferredRepresentation?.text.isEmpty == true { return VeraText.text("Empty text") }
+        return preferredRepresentation?.text ?? VeraText.text(value.array != nil ? "Empty list" : "Empty object")
     }
 }
 
 extension Record {
+    public var renderedMailingLines: String? { mailingLines?.text }
+
+    private var mailingLines: MailingLines? {
+        guard kind == .address, let template = fields["formatted"]?.string else { return nil }
+        return MailingLines.render(template, fields: fields)
+    }
+
     public var values: [RecordValue] {
         var values = orderedKeys.flatMap { key -> [RecordValue] in
             let field = fieldDefinition(key)
             let shortcuts = aliases.filter { $0.value == key }.keys.sorted()
+            if key == "formatted", let template = fields[key]?.string, let rendered = mailingLines {
+                return [RecordValue(path: [key], label: field.label, value: .string(template),
+                                    representations: [Representation(label: "Rendered address", text: rendered.text),
+                                                      Representation(label: "As stored", text: template)],
+                                    aliases: field.aliases + shortcuts + ["mailing address", "完整地址"], localizesLabel: true,
+                                    missingFields: rendered.missingFields.map { fieldDefinition($0).localizedLabel })]
+            }
             var results = Self.flatten(fields[key]!, path: [key], label: field.label, style: field.style,
                                 aliases: field.aliases + shortcuts)
             if field.localizesLabel, results.count == 1 { results[0].localizesLabel = true }
@@ -57,7 +81,7 @@ extension Record {
 
     public var copyableSummary: String {
         ([label] + values.compactMap { field in
-            guard let text = field.representations.first?.text, !text.isEmpty else { return nil }
+            guard let text = field.preferredRepresentation?.text, !text.isEmpty else { return nil }
             return "\(field.localizedLabel): \(text)"
         }).joined(separator: "\n")
     }

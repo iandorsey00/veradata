@@ -206,7 +206,7 @@ struct PaletteView: View {
 
     private func activeFormat(_ result: SearchResult) -> Representation? {
         let formats = result.representations
-        return formats.first { $0.id == formatID } ?? result.preferredFormat ?? formats.first
+        return formats.first { $0.id == formatID } ?? result.preferredFormat ?? result.field?.preferredRepresentation ?? formats.first
     }
 
     private func activate(_ result: SearchResult?) {

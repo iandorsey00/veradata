@@ -178,6 +178,14 @@ struct RecordEditor: View {
                             get: { draft.known[field.key] ?? KnownDraft() },
                             set: { draft.known[field.key] = $0 }
                         ))
+                        if draft.kind == .address, field.key == "formatted" {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Enter postal lines or use fields from this record. Fill Unit or apartment to include {{unit}}.")
+                                Text(verbatim: "{{recipient}}  {{streetAddress}}  {{unit}}  {{city}}  {{region}}  {{postalCode}}  {{country}}")
+                                    .fontDesign(.monospaced).textSelection(.enabled)
+                            }
+                            .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     if draft.kind == .address, AddressCoordinates.fieldKeys.contains(where: { key in
                         !draft.custom.contains(where: { $0.key == key })

@@ -27,16 +27,17 @@ Known fields accept text or null, except the listed arrays and date constraints.
 | Kind | Built-in fields |
 | --- | --- |
 | `contact` | `name`, `givenName`, `familyName`, `email`, `phone` |
-| `address` | `use`, `line1`, `line2`, `city`, `region`, `postalCode`, `country`, `formatted`, `startDate`, `endDate` |
+| `address` | `use`, `recipient`, `line1`, `line2`, `city`, `region`, `postalCode`, `country`, `formatted`, `startDate`, `endDate` |
 | `employment` | `employer`, `legalName`, `title`, `startDate`, `endDate`, `location`, `employerAddress`, `employmentType`, `responsibilities`, `achievements`, `supervisor`, `reasonForLeaving`, `verificationContact` |
 | `education` | `institution`, `qualification`, `fieldOfStudy`, `startDate`, `endDate`, `location` |
 | `custom` | User-defined fields |
 
-- Addresses use `Residential`, `Mailing`, `Billing`, `Shipping`, or `Other` when the nonempty `use` field is supplied. A dated `endDate` identifies a historical address in the interface. An omitted or empty end date is displayed as open-ended. A null end date is displayed as unknown. These labels describe the stored record.
+- Addresses use `Residential`, `Work`, `Mailing`, `Billing`, `Shipping`, or `Other` when the nonempty `use` field is supplied. A dated `endDate` identifies a historical address in the interface. An omitted or empty end date is displayed as open-ended. A null end date is displayed as unknown. These labels describe the stored record.
 - `responsibilities` and `achievements` are arrays of strings or null. The editor displays one item per line.
 - A nonempty date string is `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`. Dates follow the proleptic Gregorian calendar and have no time zone. Year and month values remain available only at the precision supplied.
 - A phone number is stored as text, including the original punctuation or extension. A number entered with a leading plus sign and supported punctuation can also be copied with the punctuation removed. VeraData does not infer a country code.
-- An address normally offers a computed summary of its stored components. Use `formatted` to supply complete mailing lines if the computed line order is unsuitable.
+- Address components are optional text. Store postal codes as text to preserve spaces, letters, and leading zeros. The computed address uses street lines followed by city, region, postal code, and country. Use `formatted` (**Mailing lines**) to save the destination’s exact local-script spelling, line breaks, and order. VeraData preserves these lines as entered and does not validate or format them against country-specific postal templates.
+- `formatted` also accepts same-record placeholders for `recipient`, `line1`, `line2`, `city`, `region`, `postalCode`, and `country`, written as `{{key}}`. `name` is an alias for `recipient` and also accepts an existing custom `name` field when `recipient` is omitted. `streetAddress` refers to `line1`. `unit` and `unitNumber` refer to `line2`. Lines whose recognized placeholders are all empty or missing are skipped. Other text stays literal, and inserted values are never expanded again. The stored template remains the value in JSON. Retrieval offers the rendered address as a representation, and evidence checks compare against that rendered address.
 - Address records can store decimal degrees in optional custom fields named `latitude` and `longitude`. VeraData uses a complete pair in the ranges −90 to 90 and −180 to 180. Each coordinate may be text or a JSON decimal number written without an exponent. The computed pair uses latitude first and preserves fractional digits. Other values can remain in these custom fields.
 - Distinct jobs with the same employer label have their own record IDs and historical fields. The current format has no organization foreign keys.
 
@@ -70,7 +71,7 @@ The demonstration can also be read by `python3 scripts/check-portability.py`. Su
 
 ## Compatibility
 
-Version 1 is the initial format. The app rejects older and newer version numbers. A future incompatible change needs a new version and a tested migration that leaves the original available for recovery. JSON5, JSON Resume adaptation, cross-record relationships, attachments, and evidence locators are possible future extensions.
+Version 1 is the initial format. The app rejects older and newer version numbers. A future incompatible change needs a new version and a tested migration that leaves the original available for recovery. JSON5, JSON Resume adaptation, cross-record relationships are possible future extensions.
 
 ## Additive record import
 
@@ -87,7 +88,7 @@ An employment `endDate` can also be the string `"Present"`. Creating or importin
 
 ## iPhone transfers
 
-In VeraData for Mac, choose **File › Export for iPhone**. Check individual records or select all records in a profile. The export includes each checked record in full, including its custom fields and aliases. Unchecked records, empty profiles, and desktop settings are omitted.
+In VeraData for Mac, choose **File › Export for iPhone**. Check individual records or select all records in a profile. The export includes each checked record in full, including its custom fields and aliases. Unchecked records, empty profiles, and desktop settings are omitted. Evidence is off by default. Check a document beneath a selected record or use **Select All Evidence for Checked Records**. The transfer includes the full document and its marks on the selected record. The evidence on other records remains excluded.
 
 A transfer is UTF-8 JSON with the following envelope:
 
@@ -113,8 +114,14 @@ On iPhone, choose **Import Transfer** and pick the file in Files. Import validat
 
 The transfer file is readable JSON. Use the existing **Export Selected Fields** action on Mac for a smaller file when a recipient only needs specific fields from a record.
 
+Transfers without attachments keep the version 1 envelope. Transfers with evidence use version 2 and add a `documents` object mapping SHA-256 digests to base64 original bytes. The record entries contain the selected `evidence` marks. VeraData validates that every bundled document matches its digest and is referenced, and caps the unique document payload at 32 MiB and the transfer file at 64 MiB. Use the updated companion to import version 2. The iPhone saves the confirmed transfer as one protected local file and opens the marked page for read-only viewing.
+
 ## Change sets and live preset selections
 
 A [version 1 change set](../schema/change-set-v1.schema.json) names an existing profile ID and an ordered list of record or preset edits. The CLI validates it against the current vault, previews the diff, and requires the preview token to apply it. The same state change either completes as a unit or remains pending for journal recovery. See the [CLI guide](cli.md#review-and-apply-a-batch) for the operations and a fictional example.
 
 A whole-field preset selection follows the live value, including changed object contents and added or removed list items. Indexed list selections keep their fingerprints and require review when the source list changes. Older preset definitions load with these rules. Newly saved presets use version 2. The vault and transfer schemas, and ordinary export values, remain separate from transaction and revision metadata.
+
+### Local field evidence
+
+A vault record can carry an optional `evidence` array. Each mark contains a UUID, a local document key (SHA-256 of the original bytes), a display filename and kind, a zero-based page, a normalized top-left rectangle in the displayed page, a review timestamp, and the fingerprints of the reviewed field values by key. A rectangle can support multiple fields. The mark stays linked to each field after edits, and only matching values qualify as checked. Older VeraData builds predate the evidence property and need a vault backup from before evidence was attached. Evidence metadata is private vault data. It is only carried out of the vault in backups and explicitly selected iPhone transfers, and is omitted from field projection formats.

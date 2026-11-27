@@ -124,16 +124,18 @@ public struct ExportPreset: Codable, Sendable {
 }
 
 public struct ExportPresetStore: Sendable {
-    private let vaultURL: URL
+    private let store: VaultStateStore
 
-    public init(vaultURL: URL) { self.vaultURL = vaultURL }
+    public init(vaultURL: URL, encrypted: EncryptedVault? = nil) {
+        store = VaultStateStore(vaultURL: vaultURL, encrypted: encrypted)
+    }
 
     public func load(_ name: String) throws -> ExportPreset {
-        try VaultStateStore(vaultURL: vaultURL).snapshot().preset(name)
+        try store.snapshot().preset(name)
     }
 
     public func names(for profileID: Profile.ID? = nil) throws -> [String] {
-        let state = try VaultStateStore(vaultURL: vaultURL).snapshot()
+        let state = try store.snapshot()
         return state.presets.keys.sorted().filter {
             guard let preset = try? state.preset($0) else { return false }
             return profileID == nil || profileID == preset.profileID
@@ -143,7 +145,7 @@ public struct ExportPresetStore: Sendable {
     @discardableResult
     public func save(_ preset: ExportPreset, replace: Bool = false, expected: String? = nil) throws -> String {
         var token = ""
-        try VaultStateStore(vaultURL: vaultURL).commit(expected: expected, summary: "Save export preset") { state in
+        try store.commit(expected: expected, summary: "Save export preset") { state in
             if state.presets[preset.name] != nil {
                 guard replace, try state.preset(preset.name).profileID == preset.profileID else {
                     throw DataIssue("That export preset name is already in use.")
@@ -157,12 +159,12 @@ public struct ExportPresetStore: Sendable {
 
     public func delete(_ name: String) throws {
         let name = try ExportPreset.normalizedName(name)
-        try VaultStateStore(vaultURL: vaultURL).commit(summary: "Delete export preset") { state in
+        try store.commit(summary: "Delete export preset") { state in
             guard state.presets.removeValue(forKey: name) != nil else { throw DataIssue("Export preset not found.") }
         }
     }
 
-    public func snapshot() throws -> VaultState { try VaultStateStore(vaultURL: vaultURL).snapshot() }
+    public func snapshot() throws -> VaultState { try store.snapshot() }
 }
 
 private extension Dictionary {
