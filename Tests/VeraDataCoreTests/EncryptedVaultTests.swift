@@ -34,15 +34,17 @@ struct EncryptedVaultTests {
         let expectedState = try local.stateStore.snapshot()
         let expectedHistory = try local.stateStore.history().map(\.id)
 
-        let plainURL = folder.appendingPathComponent("Copy.veradatavault")
+        let plainURL = folder.appendingPathComponent("Plain.veradata")
         let encryptedURL = folder.appendingPathComponent("Copy.veradata")
-        let decryptedURL = folder.appendingPathComponent("Decrypted.veradatavault")
+        let decryptedURL = folder.appendingPathComponent("Decrypted.veradata")
         let plain = try VaultArchive.create(at: plainURL, copying: local.stateStore)
         let encrypted = try VaultArchive.create(at: encryptedURL, password: passphrase,
                                                 copying: VaultStateStore(vaultURL: plainURL, archive: plain))
         _ = try VaultArchive.create(at: decryptedURL, copying: VaultStateStore(vaultURL: encryptedURL, archive: encrypted))
         for url in [plainURL, encryptedURL, decryptedURL] {
-            let archive = try VaultArchive.open(url, password: VaultArchive.isEncryptedURL(url) ? passphrase : nil)
+            let requiresPassword = try VaultArchive.requiresPassword(at: url)
+            #expect(requiresPassword == (url == encryptedURL))
+            let archive = try VaultArchive.open(url, password: requiresPassword ? passphrase : nil)
             let source = VaultStateStore(vaultURL: url, archive: archive)
             #expect(try source.snapshot() == expectedState)
             #expect(try source.history().map(\.id) == expectedHistory)
@@ -53,6 +55,13 @@ struct EncryptedVaultTests {
             #expect(!FileManager.default.fileExists(atPath: url.path + ".evidence"))
         }
         #expect(try local.stateStore.snapshot() == expectedState)
+        #expect(throws: DataIssue.self) { try VaultArchive.open(encryptedURL) }
+        #expect(throws: VaultStateConflict.self) { try VaultArchive.open(plainURL, password: passphrase) }
+        let obsolete = folder.appendingPathComponent("Old.veradatavault")
+        try FileManager.default.copyItem(at: plainURL, to: obsolete)
+        #expect(!VaultArchive.isArchiveURL(obsolete))
+        #expect(throws: DataIssue.self) { try VaultArchive.open(obsolete) }
+
         #expect(throws: DataIssue.self) { try VaultArchive.create(at: plainURL, copying: local.stateStore) }
         #expect(throws: DataIssue.self) { try VaultStateStore(vaultURL: plainURL).snapshot() }
 

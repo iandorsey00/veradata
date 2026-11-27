@@ -32,6 +32,7 @@ public struct MobileTransfer: Equatable, Sendable {
             guard let ids = selection[profile.id] else { return nil }
             let records = try profile.records.filter { ids.contains($0.id) }.map { record in
                 var copy = record
+                copy.verifications = [:]
                 copy.evidence = record.evidence.filter { mark in
                     evidence.contains(EvidencePick(profileID: profile.id, recordID: record.id, digest: mark.document.digest))
                 }

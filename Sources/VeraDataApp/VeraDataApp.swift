@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Carbon
 import SwiftUI
 import UniformTypeIdentifiers
@@ -18,6 +19,7 @@ struct VeraDataApp: App {
                 .frame(minWidth: 690, minHeight: 480)
                 .tint(.blue)
                 .task { await updates.monitor() }
+                .onOpenURL { state.openVault($0) }
         }
         .defaultSize(width: 1020, height: 690)
         .commands {
@@ -78,6 +80,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     @Published var recordID: String?
     @Published var editor: RecordDraft?
     @Published var evidenceRecord: Record?
+    @Published var verificationRequest: SavedVerificationRequest?
     @Published var problem: String?
     @Published var status: String?
     @Published var restoreCandidate: Vault?
@@ -93,20 +96,19 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
     private var store: VaultFile
     var stateStore: VaultStateStore { store.stateStore }
     var evidenceFiles: EvidenceFileStore { EvidenceFileStore(vaultURL: store.url, archive: store.archive) }
-    var isEncrypted: Bool { VaultArchive.isEncryptedURL(store.url) }
+    @Published private(set) var isEncrypted = false
     var vaultFilename: String { store.url.lastPathComponent }
     var showsVaultFilename: Bool { store.url != VaultFile.defaultURL || VaultArchive.isArchiveURL(store.url) }
     var canSwitchVault: Bool {
-        editor == nil && evidenceRecord == nil && importRequest == nil && exportRequest == nil &&
+        editor == nil && evidenceRecord == nil && verificationRequest == nil && importRequest == nil && exportRequest == nil &&
             restoreCandidate == nil && !phoneExportOpen && !historyOpen
     }
     private static let workingVaultPreference = "WorkingVaultPath"
-    private static let encryptedType = UTType(exportedAs: "com.iandorsey.veradata.vault", conformingTo: .data)
-    private static let plainVaultType = UTType(exportedAs: "com.iandorsey.veradata.plain-vault", conformingTo: .data)
-    private weak var vaultSavePanel: NSSavePanel?
+    private static let vaultType = UTType(exportedAs: "com.iandorsey.veradata.vault", conformingTo: .data)
     private var hotkey: GlobalShortcut?
     private var searchPanel: NSPanel?
     private var returnApp: NSRunningApplication?
+    private var verificationSource = NSWorkspace.shared.frontmostApplication
     private var pinnedRecordID: String?
     private var statusReset: Task<Void, Never>?
     weak var mainWindow: NSWindow?
@@ -118,18 +120,18 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         let location = custom == nil ? saved.map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL : VaultFile.defaultURL
         store = VaultFile(url: location)
         super.init()
-        if isEncrypted {
-            canEdit = false
-        } else {
-            do {
-                if VaultArchive.isArchiveURL(location) {
+        do {
+            if VaultArchive.isArchiveURL(location) {
+                isEncrypted = try VaultArchive.requiresPassword(at: location)
+                if !isEncrypted {
                     store = try VaultFile(url: location, archive: VaultArchive.open(location))
                 }
-                if let saved = try store.load() { vault = saved }
-            } catch {
-                canEdit = false
-                problem = VeraText.format("The local vault could not be opened. Its file was preserved. %@", error.localizedDescription)
             }
+            canEdit = !isEncrypted
+            if canEdit, let saved = try store.load() { vault = saved }
+        } catch {
+            canEdit = false
+            problem = VeraText.format("The local vault could not be opened. Its file was preserved. %@", error.localizedDescription)
         }
         selectProfile(vault.profiles[0].id)
         hotkey = GlobalShortcut { [weak self] in self?.openSearch() }
@@ -202,6 +204,49 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         showStatus(VeraText.text("Evidence updated."))
     }
 
+    func verifyField(_ key: String) {
+        guard canEdit, canSwitchVault, let record, let value = record.fields[key],
+              FieldVerification.comparisonText(value) != nil else { return }
+        verificationRequest = SavedVerificationRequest(profileID: profileID, record: record,
+            target: VerificationTarget(key: key, title: record.fieldDefinition(key).localizedLabel, value: value))
+    }
+
+    func saveVerification(_ verification: FieldVerification, request: SavedVerificationRequest) throws {
+        guard let index = vault.profiles.firstIndex(where: { $0.id == request.profileID }),
+              let position = vault.profiles[index].records.firstIndex(where: { $0.id == request.record.id }),
+              vault.profiles[index].records[position] == request.record else { throw VaultStateConflict.stale }
+        var updated = vault
+        updated.profiles[index].records[position].verifications[request.target.key] = verification
+        try persist(updated)
+        showStatus(VeraText.text("Field verified."))
+    }
+
+    func trackVerificationSource(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        verificationSource = app
+    }
+
+    func selectedOriginalText() throws -> String {
+        guard let app = verificationSource, !app.isTerminated,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            throw DataIssue("Select the original text in another app or paste it here.")
+        }
+        guard AXIsProcessTrusted() else {
+            throw DataIssue("Allow VeraData in System Settings › Privacy & Security › Accessibility to compare selections, or paste the original text.")
+        }
+        let source = AXUIElementCreateApplication(app.processIdentifier)
+        var focused: CFTypeRef?
+        var selection: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(source, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID(),
+              AXUIElementCopyAttributeValue(focused as! AXUIElement, kAXSelectedTextAttribute as CFString, &selection) == .success,
+              let text = selection as? String, FieldVerification.comparisonText(.string(text)) != nil else {
+            throw DataIssue("The source app did not provide selected text. Select the original text again or paste it here.")
+        }
+        return text
+    }
+
     func deleteRecord(_ id: String) {
         guard let profileIndex = vault.profiles.firstIndex(where: { $0.id == profileID }) else { return }
         let position = profile.records.firstIndex { $0.id == id } ?? 0
@@ -235,13 +280,21 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         guard canSwitchVault else { return }
         let panel = NSOpenPanel()
         panel.title = VeraText.text("Open Vault")
-        panel.allowedContentTypes = [Self.plainVaultType, Self.encryptedType, .json]
+        panel.allowedContentTypes = [Self.vaultType, .json]
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if VaultArchive.isEncryptedURL(url) { openEncryptedVault(url); return }
+        openVault(url)
+    }
+
+    func openVault(_ url: URL) {
+        guard url.isFileURL, canSwitchVault else { return }
         do {
-            let archive = try VaultArchive.isArchiveURL(url) ? VaultArchive.open(url) : nil
-            try adopt(VaultFile(url: url, archive: archive))
+            if VaultArchive.isArchiveURL(url) {
+                if try VaultArchive.requiresPassword(at: url) { openEncryptedVault(url); return }
+                try adopt(VaultFile(url: url, archive: VaultArchive.open(url)))
+            } else if url.pathExtension.lowercased() == "json" {
+                try adopt(VaultFile(url: url))
+            }
         } catch { problem = error.localizedDescription }
     }
 
@@ -249,7 +302,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         guard canSwitchVault else { return }
         let panel = NSSavePanel()
         panel.title = VeraText.text("New Encrypted Vault")
-        panel.allowedContentTypes = [Self.encryptedType]
+        panel.allowedContentTypes = [Self.vaultType]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = "Database.veradata"
         guard panel.runModal() == .OK, let url = panel.url,
@@ -281,6 +334,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         closeSearch(returnToOrigin: false)
         status = nil
         store = next
+        isEncrypted = next.archive?.isEncrypted == true
         vault = opened
         selectProfile(selectedProfile)
         if profile.records.contains(where: { $0.id == selectedRecord }) { recordID = selectedRecord }
@@ -333,21 +387,17 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         guard canEdit, canSwitchVault else { return }
         let panel = NSSavePanel()
         panel.title = VeraText.text("Save Vault As")
-        panel.message = VeraText.text("Includes records, evidence, presets, settings, and history. VeraData will use the new vault for future edits. The original stays where it is.")
+        panel.allowedContentTypes = [Self.vaultType]
+        panel.message = VeraText.text("Includes records, evidence, verification, presets, settings, and history. VeraData will use the new vault for future edits. The original stays where it is.")
         panel.nameFieldStringValue = VaultArchive.isArchiveURL(store.url)
             ? VeraText.format("%@ Copy", store.url.deletingPathExtension().lastPathComponent) : "VeraData"
         let picker = NSPopUpButton(frame: .zero, pullsDown: false)
         picker.addItems(withTitles: [VeraText.text("Unencrypted"), VeraText.text("Password-protected")])
         picker.selectItem(at: isEncrypted ? 1 : 0)
-        picker.target = self
-        picker.action = #selector(changeSaveVaultFormat(_:))
         picker.setAccessibilityLabel(VeraText.text("Vault format"))
         let accessory = NSStackView(views: [NSTextField(labelWithString: VeraText.text("Vault format")), picker])
         accessory.spacing = 8
         panel.accessoryView = accessory
-        vaultSavePanel = panel
-        defer { vaultSavePanel = nil }
-        changeSaveVaultFormat(picker)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         var password: String?
         if picker.indexOfSelectedItem == 1 {
@@ -361,20 +411,12 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         } catch { problem = error.localizedDescription }
     }
 
-    @objc private func changeSaveVaultFormat(_ picker: NSPopUpButton) {
-        guard let panel = vaultSavePanel else { return }
-        let filename = panel.nameFieldStringValue
-        let url = URL(fileURLWithPath: filename)
-        panel.allowedContentTypes = [picker.indexOfSelectedItem == 1 ? Self.encryptedType : Self.plainVaultType]
-        if VaultArchive.isArchiveURL(url) { panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent }
-    }
-
     func backUpRecords() {
         guard canEdit, canSwitchVault else { return }
         let panel = NSSavePanel()
         panel.title = VeraText.text("Back Up Records as JSON")
         panel.prompt = VeraText.text("Save Backup")
-        panel.message = VeraText.text("Saves all profiles, records, and the search shortcut in readable JSON. Evidence, presets, and revision history are excluded.")
+        panel.message = VeraText.text("Saves all profiles, records, and the search shortcut in readable JSON. Evidence, verification, presets, and revision history are excluded.")
         panel.allowedContentTypes = [.json]
         let date = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash))
         panel.nameFieldStringValue = "VeraData-Records-\(date).json"
@@ -461,7 +503,7 @@ final class AppState: NSObject, ObservableObject, NSWindowDelegate {
         guard canEdit else { return }
         do {
             guard try store.hasExternalChanges() else { reloadPending = false; return }
-            if editor != nil || evidenceRecord != nil || importRequest != nil || exportRequest != nil || restoreCandidate != nil || phoneExportOpen {
+            if editor != nil || evidenceRecord != nil || verificationRequest != nil || importRequest != nil || exportRequest != nil || restoreCandidate != nil || phoneExportOpen {
                 reloadPending = true
             } else {
                 try reloadVault()

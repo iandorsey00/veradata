@@ -119,6 +119,7 @@ public struct RecordImportReview: Sendable {
                 if ids.insert(record.id).inserted {
                     var copy = record
                     copy.evidence = []
+                    copy.verifications = [:]
                     updated.records.append(copy)
                 } else {
                     let copy = Record(kind: record.kind, label: record.label, fields: record.fields, aliases: record.aliases)

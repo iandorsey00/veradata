@@ -7,7 +7,7 @@ public struct VaultFile {
     private var loaded = false
     private var observed = FileObservation()
     public let archive: VaultArchive?
-    public var encrypted: EncryptedVault? { VaultArchive.isEncryptedURL(url) ? archive : nil }
+    public var encrypted: EncryptedVault? { archive?.isEncrypted == true ? archive : nil }
 
     public init(url: URL, archive: VaultArchive? = nil) {
         self.url = url

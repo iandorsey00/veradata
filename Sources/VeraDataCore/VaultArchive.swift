@@ -31,7 +31,6 @@ public struct VaultArchive: Sendable {
     }
 
     public static let fileExtension = "veradata"
-    public static let plainFileExtension = "veradatavault"
     private static let magic = Data("VERADATA\u{01}".utf8)
     private static let plainHeader = Data("VERADATAVAULT\u{01}".utf8)
     private static let saltLength = 16
@@ -40,23 +39,31 @@ public struct VaultArchive: Sendable {
     private let key: SymmetricKey?
     public let url: URL
 
-    public static func isEncryptedURL(_ url: URL) -> Bool {
+    public var isEncrypted: Bool { key != nil }
+
+    public static func isArchiveURL(_ url: URL) -> Bool {
         url.pathExtension.lowercased() == fileExtension
     }
 
-    public static func isArchiveURL(_ url: URL) -> Bool {
-        isEncryptedURL(url) || url.pathExtension.lowercased() == plainFileExtension
+    public static func requiresPassword(at url: URL) throws -> Bool {
+        try checkExtension(url)
+        return try coordinate(url) { location in
+            let header = try readFile(location, prefixLength: magic.count + saltLength + 28)
+            return try encryptedFormat(header)
+        }
     }
 
     public static func open(_ url: URL, password: String? = nil) throws -> Self {
-        try checkFormat(url, password: password)
+        try checkExtension(url)
         return try coordinate(url) { location in
             let bytes = try readFile(location)
             let file: Self
-            if let password {
+            if try encryptedFormat(bytes) {
+                guard let password else { throw DataIssue("Unlock the encrypted vault first.") }
                 let header = try readEncryptedHeader(bytes)
                 file = Self(header: header, key: try derive(password, salt: Data(header.suffix(saltLength))), url: url)
             } else {
+                guard password == nil else { throw VaultStateConflict.stale }
                 file = Self(header: plainHeader, key: nil, url: url)
             }
             _ = try file.decode(bytes)
@@ -66,7 +73,7 @@ public struct VaultArchive: Sendable {
 
     public static func create(at url: URL, password: String? = nil, copying source: VaultStateStore? = nil,
                               initialVault: Vault = Vault()) throws -> Self {
-        try checkFormat(url, password: password)
+        try checkExtension(url)
         let file: Self
         if let password {
             guard password.count >= 12 else { throw DataIssue("Use a vault password with at least 12 characters.") }
@@ -87,9 +94,7 @@ public struct VaultArchive: Sendable {
     }
 
     public func backup(to destination: URL) throws {
-        guard destination.pathExtension.lowercased() == url.pathExtension.lowercased() else {
-            throw DataIssue("Use the same filename extension as the source vault.")
-        }
+        try Self.checkExtension(destination)
         let bytes = try backupData()
         try Self.coordinate(destination, writing: []) { try Self.publish(bytes, at: $0, replacing: false) }
     }
@@ -126,15 +131,14 @@ public struct VaultArchive: Sendable {
         vault.profiles.flatMap(\.records).flatMap(\.evidence).map(\.document)
     }
 
-    private static func checkFormat(_ url: URL, password: String?) throws {
-        if isEncryptedURL(url) {
-            guard password != nil else { throw DataIssue("Unlock the encrypted vault first.") }
-        } else {
-            guard url.pathExtension.lowercased() == plainFileExtension else {
-                throw DataIssue("Choose a .veradatavault or .veradata file.")
-            }
-            guard password == nil else { throw DataIssue("Use the .veradata filename extension.") }
-        }
+    private static func checkExtension(_ url: URL) throws {
+        guard isArchiveURL(url) else { throw DataIssue("Use the .veradata filename extension.") }
+    }
+
+    private static func encryptedFormat(_ bytes: Data) throws -> Bool {
+        if bytes.starts(with: plainHeader) { return false }
+        _ = try readEncryptedHeader(bytes)
+        return true
     }
 
     private static func checkConflicts(_ url: URL) throws {
@@ -250,7 +254,7 @@ public struct VaultArchive: Sendable {
         }
     }
 
-    private static func readFile(_ url: URL) throws -> Data {
+    private static func readFile(_ url: URL, prefixLength: Int? = nil) throws -> Data {
         let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         if descriptor < 0 && errno == ENOENT {
             throw DataIssue("The vault is missing or has not downloaded. Check the file in Finder.")
@@ -262,7 +266,7 @@ public struct VaultArchive: Sendable {
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
             throw DataIssue("Choose a regular vault file.")
         }
-        let data = try file.read(upToCount: maxBytes + 1) ?? Data()
+        let data = try file.read(upToCount: prefixLength ?? maxBytes + 1) ?? Data()
         guard data.count <= maxBytes else { throw DataIssue("The vault exceeds the size limit.") }
         return data
     }

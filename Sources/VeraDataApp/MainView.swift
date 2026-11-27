@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import VeraDataCore
 
@@ -7,7 +8,7 @@ struct MainView: View {
     let updateURL: URL?
     @ViewState private var newProfile: Bool = false
     @ViewState private var profileName: String = ""
-    @ViewState private var proposedDeletion: Record?
+    @ViewState private var proposedDeletion: VeraDataCore.Record?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -16,6 +17,9 @@ struct MainView: View {
             detail
         }
         .background(WindowCapture { state.mainWindow = $0 })
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)) {
+            state.trackVerificationSource($0)
+        }
         .safeAreaInset(edge: .top) {
             if state.reloadPending {
                 Text("VeraData changed on disk. Close your open edit or review to reload. Unsaved changes stay in your draft.")
@@ -30,7 +34,12 @@ struct MainView: View {
             }
         }
         .sheet(item: $state.editor) { draft in
-            RecordEditor(initial: draft, save: state.saveRecord)
+            RecordEditor(initial: draft, selectedText: state.selectedOriginalText, save: state.saveRecord)
+        }
+        .sheet(item: $state.verificationRequest) { request in
+            FieldVerificationView(target: request.target, selectedText: state.selectedOriginalText) {
+                try state.saveVerification($0, request: request)
+            }
         }
         .sheet(item: $state.evidenceRecord) { record in
             EvidenceView(record: record, files: state.evidenceFiles) { marks, attachment in
@@ -239,7 +248,10 @@ struct MainView: View {
                             .foregroundStyle(.secondary).padding(.vertical, 22)
                     }
                     ForEach(record.values) { field in
-                        FieldRow(field: field, evidenceStatus: evidenceStatus(for: field, in: record), copy: state.copy)
+                        let key = field.path.count == 1 ? field.path.first : nil
+                        FieldRow(field: field, evidenceStatus: evidenceStatus(for: field, in: record),
+                                 verification: key.flatMap { record.verifications[$0] },
+                                 verify: verificationAction(for: key, in: record), copy: state.copy)
                         Divider()
                     }
                 }
@@ -287,7 +299,13 @@ struct MainView: View {
         }
     }
 
-    private func evidenceStatus(for field: RecordValue, in record: Record) -> String? {
+    private func verificationAction(for key: String?, in record: VeraDataCore.Record) -> (() -> Void)? {
+        guard state.canEdit, state.canSwitchVault, let key,
+              FieldVerification.comparisonText(record.fields[key]) != nil else { return nil }
+        return { state.verifyField(key) }
+    }
+
+    private func evidenceStatus(for field: RecordValue, in record: VeraDataCore.Record) -> String? {
         guard field.path.count == 1, let key = field.path.first else { return nil }
         let marks = record.evidence.filter { $0.fields[key] != nil }
         guard !marks.isEmpty else { return nil }
@@ -314,6 +332,8 @@ struct MainView: View {
 private struct FieldRow: View {
     let field: RecordValue
     let evidenceStatus: String?
+    let verification: FieldVerification?
+    let verify: (() -> Void)?
     let copy: (String, String) -> Bool
 
     var body: some View {
@@ -324,6 +344,7 @@ private struct FieldRow: View {
                     if let evidenceStatus {
                         Text(VeraText.text(evidenceStatus)).font(.caption).foregroundStyle(.secondary)
                     }
+                    FieldVerificationBadge(verification: verification, value: field.value)
                 }
                 if let items = field.bulletItems {
                     VStack(alignment: .leading, spacing: 5) {
@@ -350,6 +371,13 @@ private struct FieldRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if let verify {
+                Button(action: verify) {
+                    Label("Verify Field…", systemImage: "checkmark.circle").labelStyle(.iconOnly)
+                }
+                .help(VeraText.format("Verify %@", field.localizedLabel))
+                .accessibilityLabel(VeraText.format("Verify %@", field.localizedLabel))
+            }
             if let first = field.preferredRepresentation {
                 Button { _ = copy(first.text, field.localizedLabel) } label: {
                     Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)

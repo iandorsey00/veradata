@@ -1,7 +1,20 @@
 import Foundation
 
 public enum VeraText {
-    private static let bundle = Bundle.main.url(forResource: "zh-Hans", withExtension: "lproj") != nil ? Bundle.main : Bundle.module
+    private static let bundle: Bundle = {
+        if Bundle.main.url(forResource: "zh-Hans", withExtension: "lproj") != nil { return .main }
+        // The installed CLI runs from Contents/Helpers, while its translations live in the app's Resources folder.
+        if let helpers = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent(),
+           helpers.lastPathComponent == "Helpers" {
+            let contents = helpers.deletingLastPathComponent()
+            let app = contents.deletingLastPathComponent()
+            if contents.lastPathComponent == "Contents", app.pathExtension == "app",
+               let bundle = Bundle(url: app), bundle.url(forResource: "zh-Hans", withExtension: "lproj") != nil {
+                return bundle
+            }
+        }
+        return .module
+    }()
 
     private static let chinese = bundle.url(forResource: "zh-Hans", withExtension: "lproj").flatMap(Bundle.init(url:))
 

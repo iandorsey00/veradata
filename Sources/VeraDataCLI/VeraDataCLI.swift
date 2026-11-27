@@ -51,7 +51,7 @@ struct VeraDataCLI {
           history prune --keep COUNT [--apply]
           history retention [--keep COUNT --apply]
 
-        Data commands accept --vault PATH, including .veradatavault and .veradata files.
+        Data commands accept --vault PATH, including .veradata files.
         For a password-protected vault, the terminal prompts for its password.
         Profile-scoped commands accept --profile ID or NAME.
         With no --vault, commands use the desktop app's vault. With no --profile, use the first profile.
@@ -93,7 +93,7 @@ struct VeraDataCLI {
         let path = args.one("--vault").map { URL(fileURLWithPath: $0) } ?? VaultFile.defaultURL
         let archive: VaultArchive?
         if command != "current", VaultArchive.isArchiveURL(path) {
-            let password = try VaultArchive.isEncryptedURL(path) ? vaultPassword("Vault password: ") : nil
+            let password = try VaultArchive.requiresPassword(at: path) ? vaultPassword("Vault password: ") : nil
             archive = try VaultArchive.open(path, password: password)
         } else {
             archive = nil

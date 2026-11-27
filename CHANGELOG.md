@@ -1,5 +1,11 @@
 # VeraData changelog
 
+## 0.12.0 · 2026-11-27
+
+- Use `.veradata` for both unencrypted and password-protected vaults. Finder displays the VeraData icon for these files. To open an existing `.veradatavault` file, rename its extension to `.veradata`.
+- Verify fields while editing or from the record view by pasting source text or comparing a selection. VeraData saves the verification status with the record.
+- Build the Mac app and bundled CLI with the macOS 27.2 SDK while keeping macOS 14 as the minimum version.
+
 ## 0.11.0 · 2026-11-26
 
 - Use **Save Vault As…** to create an unencrypted or password-protected working vault with records, evidence, presets, settings, and revision history.

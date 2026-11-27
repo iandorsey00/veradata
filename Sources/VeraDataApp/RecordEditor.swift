@@ -9,6 +9,7 @@ struct RecordDraft: Identifiable, Equatable {
     var known: [String: KnownDraft]
     var custom: [CustomDraft]
     var shortcuts: [String: String]
+    var verifications: [String: FieldVerification]
 
     init(record: Record? = nil) {
         id = record?.id ?? UUID().uuidString.lowercased()
@@ -16,6 +17,7 @@ struct RecordDraft: Identifiable, Equatable {
         label = record?.label ?? ""
         isNew = record == nil
         let fields = record?.fields ?? [:]
+        verifications = record?.verifications ?? [:]
         known = Dictionary(uniqueKeysWithValues: kind.fields.map {
             ($0.key, KnownDraft(value: fields[$0.key]))
         })
@@ -42,7 +44,7 @@ struct RecordDraft: Identifiable, Equatable {
             }
         }
         for field in kind.fields {
-            if let value = known[field.key]?.value(for: field.style) {
+            if let value = value(for: field) {
                 fields[field.key] = value
                 try addAliases(shortcuts[field.key, default: ""], for: field.key)
             }
@@ -62,14 +64,21 @@ struct RecordDraft: Identifiable, Equatable {
             }
             try addAliases(item.shortcuts, for: key)
         }
-        if kind == .employment, let end = fields["endDate"]?.string {
-            fields["endDate"] = .string(Record.canonicalEmploymentEndDate(end))
-        }
-        let record = Record(id: id, kind: kind, label: label.trimmingCharacters(in: .whitespacesAndNewlines),
+        var record = Record(id: id, kind: kind, label: label.trimmingCharacters(in: .whitespacesAndNewlines),
                             fields: fields, aliases: aliases)
+        record.verifications = verifications.filter { fields[$0.key] != nil }
         try record.validate()
         return record
     }
+
+    func value(for field: FieldDefinition) -> JSONValue? {
+        let value = known[field.key]?.value(for: field.style)
+        if kind == .employment, field.key == "endDate", let end = value?.string {
+            return .string(Record.canonicalEmploymentEndDate(end))
+        }
+        return value
+    }
+
 }
 
 enum FieldPresence: String, CaseIterable, Identifiable {
@@ -138,11 +147,14 @@ struct RecordEditor: View {
     @ViewState private var draft: RecordDraft
     @ViewState private var issue: String?
     @ViewState private var discardChanges: Bool = false
+    @ViewState private var verificationTarget: VerificationTarget?
     let initial: RecordDraft
+    let selectedText: () throws -> String
     let save: (Record) throws -> Void
 
-    init(initial: RecordDraft, save: @escaping (Record) throws -> Void) {
+    init(initial: RecordDraft, selectedText: @escaping () throws -> String, save: @escaping (Record) throws -> Void) {
         self.initial = initial
+        self.selectedText = selectedText
         self.save = save
         _draft = State(initialValue: initial)
     }
@@ -174,10 +186,13 @@ struct RecordEditor: View {
                             .labelsHidden().accessibilityLabel("Record name").focused($nameFocused)
                     }
                     ForEach(draft.kind.fields, id: \.key) { field in
-                        KnownFieldEditor(field: field, acceptsPresent: draft.kind == .employment && field.key == "endDate", draft: Binding(
-                            get: { draft.known[field.key] ?? KnownDraft() },
-                            set: { draft.known[field.key] = $0 }
-                        ))
+                        VStack(alignment: .leading, spacing: 6) {
+                            KnownFieldEditor(field: field, acceptsPresent: draft.kind == .employment && field.key == "endDate", draft: Binding(
+                                get: { draft.known[field.key] ?? KnownDraft() },
+                                set: { draft.known[field.key] = $0 }
+                            ))
+                            verificationControls(key: field.key, title: field.localizedLabel, value: draft.value(for: field))
+                        }
                         if draft.kind == .address, field.key == "formatted" {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Enter postal lines or use fields from this record. Fill Unit or apartment to include {{unit}}.")
@@ -223,6 +238,11 @@ struct RecordEditor: View {
                                     .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary))
                                     .accessibilityLabel(item.key.isEmpty ? "Custom field value" : "\(item.key) value")
                             }
+                            if !draft.kind.fields.contains(where: { $0.key == item.key }),
+                               draft.custom.filter({ $0.key == item.key }).count == 1 {
+                                let value = item.mode == .text ? JSONValue.string(item.text) : (try? JSONValue.parse(Data(item.text.utf8)))
+                                verificationControls(key: item.key, title: item.key, value: value)
+                            }
                         }
                     }
                     Button {
@@ -245,11 +265,28 @@ struct RecordEditor: View {
         }
         .frame(width: 560, height: 570)
         .defaultFocus($nameFocused, true)
+        .sheet(item: $verificationTarget) { target in
+            FieldVerificationView(target: target, selectedText: selectedText) {
+                draft.verifications[target.key] = $0
+            }
+        }
         .confirmationDialog("Discard your edits?", isPresented: $discardChanges, titleVisibility: .visible) {
             Button("Discard Changes", role: .destructive) { dismiss() }
             Button("Keep Editing", role: .cancel) {}
         }
         .interactiveDismissDisabled()
+    }
+
+    @ViewBuilder
+    private func verificationControls(key: String, title: String, value: JSONValue?) -> some View {
+        if !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let value, FieldVerification.comparisonText(value) != nil {
+            HStack {
+                Button("Verify Field…") { verificationTarget = VerificationTarget(key: key, title: title, value: value) }
+                    .accessibilityLabel(VeraText.format("Verify %@", title))
+                FieldVerificationBadge(verification: draft.verifications[key], value: value)
+            }.font(.caption)
+        }
     }
 
     private var shortcuts: some View {

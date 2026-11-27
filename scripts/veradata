@@ -10,7 +10,7 @@ fi
 
 {
     printf 'veradata: Could not run the CLI helper at %s\n' "$helper"
-    printf 'Build VeraData on macOS 14 or later with Swift 6 and the macOS SDK.\n'
+    printf 'Build VeraData with ./scripts/build-app.sh. See the README for SDK requirements.\n'
     printf '  cd %q\n  ./scripts/build-app.sh\n' "$repo"
 } >&2
 exit 1

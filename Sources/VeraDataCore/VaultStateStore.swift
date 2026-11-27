@@ -93,7 +93,7 @@ public struct VaultStateStore: Sendable {
     var afterVaultWrite: (@Sendable () throws -> Void)?
 
     public let archive: VaultArchive?
-    public var encrypted: EncryptedVault? { VaultArchive.isEncryptedURL(vaultURL) ? archive : nil }
+    public var encrypted: EncryptedVault? { archive?.isEncrypted == true ? archive : nil }
 
     public init(vaultURL: URL, archive: VaultArchive? = nil) {
         self.vaultURL = vaultURL

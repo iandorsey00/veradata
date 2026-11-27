@@ -107,6 +107,7 @@ public struct Record: Identifiable, Equatable, Sendable {
     public var fields: [String: JSONValue]
     public var aliases: [String: String]
     public var evidence: [EvidenceMark] = []
+    public var verifications: [String: FieldVerification] = [:]
 
     public init(id: String = UUID().uuidString.lowercased(), kind: RecordKind, label: String,
                 fields: [String: JSONValue] = [:], aliases: [String: String] = [:]) {
@@ -165,6 +166,9 @@ public struct Record: Identifiable, Equatable, Sendable {
     }
 
     public func validate() throws {
+        guard verifications.allSatisfy({ !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.value.isValid }) else {
+            throw DataIssue("Invalid field verification.")
+        }
         guard Set(evidence.map(\.id)).count == evidence.count else { throw DataIssue("Evidence marks must have unique IDs.") }
         for mark in evidence { try mark.validate() }
         try validateID(id, at: "Record ID")
@@ -274,11 +278,11 @@ public struct Vault: Equatable, Sendable {
         }
         guard let profiles = envelope["profiles"]?.array else { throw DataIssue("Profiles must be a list.") }
         self.shortcut = shortcut
-        self.profiles = try Self.decodeProfiles(profiles, includeEvidence: true)
+        self.profiles = try Self.decodeProfiles(profiles, includeEvidence: true, includeVerifications: true)
         _ = try validated()
     }
 
-    static func decodeProfiles(_ profiles: [JSONValue], includeEvidence: Bool = false) throws -> [Profile] {
+    static func decodeProfiles(_ profiles: [JSONValue], includeEvidence: Bool = false, includeVerifications: Bool = false) throws -> [Profile] {
         try profiles.enumerated().map { index, value in
             let path = VeraText.format("Profile %lld", index + 1)
             let object = try requireObject(value, at: path, keys: ["id", "name", "records"])
@@ -288,14 +292,15 @@ public struct Vault: Equatable, Sendable {
             }
             return Profile(id: id, name: name, records: try records.enumerated().map { position, item in
                 try Self.decodeRecord(item, at: VeraText.format("%@, record %lld", path, position + 1),
-                                      includeEvidence: includeEvidence)
+                                      includeEvidence: includeEvidence, includeVerifications: includeVerifications)
             })
         }
     }
 
-    static func decodeRecord(_ value: JSONValue, at path: String, includeEvidence: Bool = false) throws -> Record {
+    static func decodeRecord(_ value: JSONValue, at path: String, includeEvidence: Bool = false, includeVerifications: Bool = false) throws -> Record {
         var keys: Set<String> = ["id", "kind", "label", "fields", "aliases"]
         if includeEvidence { keys.insert("evidence") }
+        if includeVerifications { keys.insert("verifications") }
         let object = try requireObject(value, at: path, keys: keys)
         guard let id = object["id"]?.string, let label = object["label"]?.string,
               let type = object["kind"]?.string, let kind = RecordKind(rawValue: type),
@@ -309,6 +314,9 @@ public struct Vault: Equatable, Sendable {
         var record = Record(id: id, kind: kind, label: label, fields: fields, aliases: aliases.compactMapValues(\.string))
         if let evidence = object["evidence"] {
             record.evidence = try JSONDecoder().decode([EvidenceMark].self, from: evidence.data())
+        }
+        if let verifications = object["verifications"] {
+            record.verifications = try JSONDecoder().decode([String: FieldVerification].self, from: verifications.data())
         }
         return record
     }
@@ -326,18 +334,22 @@ public struct Vault: Equatable, Sendable {
         return try JSONValue.object([
             "version": .number(JSONNumber(String(Self.version))),
             "settings": .object(["searchShortcut": .string(shortcut.rawValue)]),
-            "profiles": try Self.encodeProfiles(profiles, includeEvidence: includeEvidence),
+            "profiles": try Self.encodeProfiles(profiles, includeEvidence: includeEvidence, includeVerifications: includeEvidence),
         ]).data()
     }
 
-    static func encodeProfiles(_ profiles: [Profile], includeEvidence: Bool = false) throws -> JSONValue {
+    static func encodeProfiles(_ profiles: [Profile], includeEvidence: Bool = false, includeVerifications: Bool = false) throws -> JSONValue {
         .array(try profiles.map { profile in
             .object([
                 "id": .string(profile.id), "name": .string(profile.name),
                 "records": .array(try profile.records.map { record in
-                    guard includeEvidence, !record.evidence.isEmpty else { return record.json }
                     var object = record.json.object ?? [:]
-                    object["evidence"] = try JSONValue.parse(VaultState.encode(record.evidence))
+                    if includeEvidence, !record.evidence.isEmpty {
+                        object["evidence"] = try JSONValue.parse(VaultState.encode(record.evidence))
+                    }
+                    if includeVerifications, !record.verifications.isEmpty {
+                        object["verifications"] = try JSONValue.parse(VaultState.encode(record.verifications))
+                    }
                     return .object(object)
                 }),
             ])

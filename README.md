@@ -6,7 +6,7 @@ VeraData is a local-first macOS utility for keeping reusable information close a
 
 ## Try it
 
-Build on macOS 14 or later with Swift 6 and the macOS SDK. The build has no third-party dependencies.
+VeraData runs on macOS 14 or later. Building the app requires Swift 6 and the macOS 27.2 SDK from Xcode 27.2 or the matching Command Line Tools. The build script checks the SDK and minimum macOS version recorded in the executables before packaging. The build has no third-party dependencies.
 
 ```sh
 ./scripts/build-app.sh
@@ -30,11 +30,11 @@ You can also invoke search with **⌘K** inside VeraData. If the global shortcut
 
 VeraData saves edits automatically. Choose **File › Save Vault As…** to create a complete working copy that includes all profiles, evidence originals and marks, export presets, settings, and revision history. Future edits go to the new vault. You can reopen the original or another copy with **File › Open Vault…**.
 
-- **Unencrypted** creates a `.veradatavault` file with no vault password. Anyone who can read the file can access its contents.
+- **Unencrypted** creates a `.veradata` file with no vault password. Anyone who can read the file can access its contents.
 - **Password-protected** creates an encrypted `.veradata` file. Keep its password somewhere safe. Use **File › Lock Vault** to clear an open password-protected vault from the app. VeraData cannot recover its password.
 - **Back Up Records as JSON…** creates a readable copy of all profiles, records, and the global search shortcut. Evidence files and marks, export presets, and revision history are excluded. Use **File › Import Records…** to recover selected records, or **Restore Records from JSON…** to replace the records in an unencrypted vault.
 
-Either complete vault format can be saved in iCloud Drive. Work on one device at a time and let syncing finish before switching devices. VeraData rejects stale saves and blocks writes when macOS reports an unresolved conflict. Keep both files if the provider creates a conflict copy.
+Either complete vault format can be saved in iCloud Drive. Work on one device at a time and let syncing finish before switching devices. VeraData rejects stale saves and blocks writes when macOS reports an unresolved conflict. Keep both files if the provider creates a conflict copy. To open a vault saved with the old `.veradatavault` extension, rename the extension to `.veradata` first.
 
 ## Everyday use
 
@@ -65,6 +65,8 @@ Fill **Recipient name** with the person or organization that should receive the 
 Lines whose placeholders are all empty are skipped. The Mac record view lists which fields were skipped below the address. The app displays and copies the rendered address, and the **Format** menu offers **As stored** for the template. JSON exports keep the template as entered so selecting **Mailing lines** does not implicitly include unselected fields.
 
 ## Check fields against evidence
+
+Choose **Verify Field…** next to a populated field in the record view or editor. Paste the source text or choose **Compare Selection**, then mark the field verified if the values match. The comparison ignores differences in whitespace and checks case and punctuation.
 
 Open a record and choose **Evidence… → Attach PDF or Image…**. Draw one box around the supporting passage, check the fields it actually shows, then choose **Mark as Checked**. For an address block, **Select Address Fields** selects populated street, unit, city, region, and postal code fields together. Add country or mailing lines individually if the document shows them. A later edit to one field makes that field **Needs review**. Reopen the mark to compare it again.
 
